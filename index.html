@@ -1,0 +1,1744 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Queeny (Single File)</title>
+  <style>
+    html, body { margin:0; padding:0; height:100%; background:#0b1220; color:#e2e8f0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    #wrap { display:flex; flex-direction:column; height:100%; }
+    #topbar {
+      display:flex; gap:10px; align-items:center; padding:10px 12px;
+      border-bottom:1px solid #1f2a44; background:#0f172a;
+      position:relative; z-index:25;
+    }
+    #topbar .title { font-weight:700; letter-spacing:0.5px; margin-right:10px; }
+    button, select {
+      background:#1f2937; color:#fff; border:1px solid #334155; border-radius:10px;
+      padding:8px 10px; cursor:pointer; font-size:14px;
+    }
+    button:hover, select:hover { background:#243244; }
+    #status { margin-left:auto; font-size:13px; color:#cbd5e1; white-space:nowrap; }
+    #canvas { flex:1; display:block; width:100%; height:100%; }
+    #hint { padding:10px 12px; border-top:1px solid #1f2a44; background:#0f172a; font-size:13px; color:#94a3b8; }
+    .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+           border:1px solid #334155; border-bottom-width:2px; border-radius:8px; padding:1px 6px; color:#e2e8f0; }
+  
+/* chooser chips */
+#chooser .chips { display:flex; flex-wrap:wrap; gap:6px; max-width:520px; max-height:180px; overflow:auto; padding:8px; border-radius:12px; background:rgba(15,23,42,.35); }
+#chooser .optHead { font-weight:800; color:#e2e8f0; margin-bottom:6px; }
+#chooser .chip { display:inline-flex; align-items:center; justify-content:center; padding:4px 8px; border-radius:999px; font-weight:800; font-size:13px; border:1px solid rgba(148,163,184,.35); background:rgba(248,250,252,.10); color:#e2e8f0; }
+#chooser .chip.red { color:#fecaca; border-color:rgba(239,68,68,.35); }
+#chooser .chip.blk { color:#e2e8f0; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="topbar">
+    <div class="title">QUEENY</div>
+    <label>
+      Players
+      <select id="players">
+        <option value="6" selected>6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+      </select>
+    </label>
+    <label>
+      AI
+      <select id="difficulty">
+        <option value="standard" selected>Standard</option>
+        <option value="basic">Basic</option>
+      </select>
+    </label>
+    <button id="newgame">New Game</button>
+    <button id="nextround" disabled>Next Round</button>
+    <button id="autoplay" title="Plays the only legal move, if forced">Auto-play (if forced)</button>
+    <div id="status"></div>
+  </div>
+
+  <div id="chooser" style="display:none; position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.55); align-items:center; justify-content:center; z-index:10;"><div style="width:min(920px,92vw); background:#0f172a; border:1px solid #334155; border-radius:18px; padding:18px 18px 14px;"><div style="font-size:18px; font-weight:700; color:#fff; margin-bottom:8px;">Choose your starting hand (two distinct hands, no overlap)</div><div style="color:#94a3b8; font-size:13px; margin-bottom:12px;">Player 1 gets two distinct hands to choose from (no overlap). Pick one to start.</div><div id="optA" style="padding:10px; border:1px solid #334155; border-radius:14px; margin-bottom:10px; cursor:pointer; background:#0b1220;"></div><div id="optB" style="padding:10px; border:1px solid #334155; border-radius:14px; margin-bottom:14px; cursor:pointer; background:#0b1220;"></div><div style="display:flex; gap:10px; justify-content:flex-end;"><button id="pickA">Use Option A</button><button id="pickB">Use Option B</button></div></div></div>
+
+  <canvas id="canvas"></canvas>
+
+  <div id="hint">
+    Click a <span class="kbd">highlighted</span> card to play. Rules: Aces low • New lead plays lowest rank (tie allowed) • Runs are exact-next (A→2→3…) in the same suit. Cards are auto-sorted by suit after dealing.
+    If nobody has the next higher card of the suit, the sequence breaks and the next player leads with their lowest.
+  </div>
+</div>
+
+<script>
+(() => {
+  // --------------------------
+  // Utilities / Types
+  // --------------------------
+  const SUITS = ["S","H","D","C"]; // Spades, Hearts, Diamonds, Clubs
+  const AI_NAMES = ["Gwen","Lesley","George","Sue","Caroline","Paul","Nigel"];
+  const isRedSuit = (s) => (s==="H" || s==="D");
+  const suitGlyph = (s) => s==="S" ? "♠" : s==="H" ? "♥" : s==="D" ? "♦" : "♣";
+  const rankLabel = (r) => r===1 ? "A" : r===11 ? "J" : r===12 ? "Q" : r===13 ? "K" : String(r);
+  const cardLabel = (c) => rankLabel(c.rank) + suitGlyph(c.suit);
+  function initials(name){
+    try{
+      const parts = String(name||"").trim().split(/\s+/).filter(Boolean);
+      if (!parts.length) return "";
+      if (parts.length===1) return parts[0].slice(0,2).toUpperCase();
+      return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+    } catch(e){ return ""; }
+  }
+  // Optional: avatar images (file paths). If missing, initials circles are used.
+  const AVATARS = {
+    "Sue": "avatars/sue.png",
+    "Paul": "avatars/paul.png",
+    "Caroline": "avatars/caroline.png",
+    "Gwen": "avatars/gwen.png",
+    "Lesley": "avatars/lesley.png",
+    "George": "avatars/george.png"
+  };
+
+
+  // Preload/cached avatar images to avoid flicker (do NOT recreate Image() every frame)
+  const AVATAR_IMG = {};
+  for (const k in AVATARS){
+    try{
+      const im = new Image();
+      im.decoding = "async";
+      im.src = AVATARS[k];
+      AVATAR_IMG[k] = im;
+    } catch(e){}
+  }
+
+function compareCard(a,b){
+    if (a.rank !== b.rank) return a.rank - b.rank;
+    const o = (s) => s==="C"?0 : s==="D"?1 : s==="H"?2 : 3;
+    return o(a.suit) - o(b.suit);
+  }
+  function sortHand(hand){
+    // Suit order: Hearts, Clubs, Diamonds, Spades
+    const suitOrder = { "H": 0, "C": 1, "D": 2, "S": 3 };
+
+    function rankNum(c){
+      // Cards are stored as { suit: "S|H|D|C", rank: 1..13 }
+      if (c && typeof c.rank === "number") return c.rank;
+      const rt = (c && c.rank) ? String(c.rank) : "";
+      if (rt==="A") return 1;
+      if (rt==="J") return 11;
+      if (rt==="Q") return 12;
+      if (rt==="K") return 13;
+      const n = parseInt(rt, 10);
+      return isNaN(n) ? 0 : n;
+    }
+
+    return hand.slice().sort(function(a,b){
+      const sa = suitOrder[a.suit];
+      const sb = suitOrder[b.suit];
+      if (sa !== sb) return (sa===undefined?99:sa) - (sb===undefined?99:sb);
+      return rankNum(a) - rankNum(b);
+    });
+  }
+
+  function shuffle(arr){
+    const a = arr.slice();
+    for (let i=a.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [a[i],a[j]]=[a[j],a[i]];
+    }
+    return a;
+  }
+  function makeDeck(){
+    const d=[];
+    for (const s of SUITS){
+      for (let r=1;r<=13;r++) d.push({suit:s, rank:r});
+    }
+    return d;
+  }
+  function dealEven(deck, playerCount){
+    const usable = Math.floor(deck.length/playerCount)*playerCount;
+    const trimmed = deck.slice(0, usable);
+    const hands = Array.from({length:playerCount}, () => []);
+    for (let i=0;i<trimmed.length;i++){
+      hands[i%playerCount].push(trimmed[i]);
+    }
+    return hands.map(sortHand);
+  }
+  function lowestCardIndex(hand){
+    let best=0;
+    for (let i=1;i<hand.length;i++) if (compareCard(hand[i], hand[best])<0) best=i;
+    return best;
+  }
+  function hasSuit(hand, suit){
+    for (const c of hand) if (c.suit===suit) return true;
+    return false;
+  }
+  function runRiskScore(hand){
+    const bySuit = {S:[],H:[],D:[],C:[]};
+    for (const c of hand) bySuit[c.suit].push(c.rank);
+    let score=0;
+    for (const s of SUITS){
+      const ranks = bySuit[s].slice().sort((a,b)=>a-b);
+      let streak=1;
+      for (let i=1;i<ranks.length;i++){
+        if (ranks[i]===ranks[i-1]+1) streak++;
+        else streak=1;
+        if (streak>=3) score += 5;
+      }
+    }
+    return score;
+  }
+  function chooseLessRunny(a,b){
+    return runRiskScore(a) <= runRiskScore(b) ? sortHand(a) : sortHand(b);
+  }
+
+  // --------------------------
+  // Game State
+  // --------------------------
+    function createInitialState(playerCount, coins, bank, chooserSeat){
+    // Persistent match state (coins + accumulating pots)
+    if (!coins || !coins.length){
+      coins = Array.from({length: playerCount}, () => 50);
+    } else {
+      coins = coins.slice(0, playerCount);
+      while (coins.length < playerCount) coins.push(50);
+    }
+
+    if (!bank){
+      bank = { out: 0, queen: 0, run: 0 };
+    } else {
+      bank = { out: (bank.out||0), queen: (bank.queen||0), run: (bank.run||0) };
+    }
+
+    chooserSeat = (typeof chooserSeat === "number") ? chooserSeat : 0;
+    chooserSeat = ((chooserSeat % playerCount) + playerCount) % playerCount;
+
+    // Ante: 3 coins per player per game (1 to each pot). Queen + Run pots can carry over.
+    for (let pid=0; pid<playerCount; pid++){
+      let pay = 3;
+      if (coins[pid] < pay) pay = Math.max(0, coins[pid]);
+      coins[pid] -= pay;
+
+      if (pay >= 1) bank.out  += 1;
+      if (pay >= 2) bank.queen += 1;
+      if (pay >= 3) bank.run  += 1;
+    }
+
+    const deck = shuffle(makeDeck());
+
+    // Centre card is a random card from the deck (not first or last)
+    const centreIndex = 1 + Math.floor(Math.random() * Math.max(1, deck.length - 2));
+    const centreCard = deck.splice(centreIndex, 1)[0]; // removed from deck
+
+    // The chooser gets TWO full hands to choose from, so total hands = (playerCount-1) + 2 = playerCount + 1
+    const deckLen = deck.length;
+
+// Hand sizing:
+// - Non-chooser players get (chooserSize - 1) cards
+// - Chooser is dealt TWO option hands of chooserSize cards, then picks one
+// This gives the chooser a small advantage when the deck does not split evenly.
+// Example: 6 players => 5 players x 7 cards + (Hand A 8 cards + Hand B 8 cards) = 51 cards (centre removed).
+const chooserSize = Math.floor((deckLen + (playerCount - 1)) / (playerCount + 1));
+const otherSize = Math.max(0, chooserSize - 1);
+
+    const players = [];
+    for (let i=0;i<playerCount;i++){
+      players.push({
+        id:i,
+        name: (i===0 ? "Nigel" : ((i-1) < AI_NAMES.length ? AI_NAMES[i-1] : ("AI " + i))),
+        isHuman: i===0,
+        hand: [],       // chooser stays empty until choose
+        outAtPlay: null,
+        handChoice: null
+      });
+    }
+
+    // Build two distinct option hands for chooser
+    const handA = sortHand(deck.splice(0, chooserSize));
+    const handB = sortHand(deck.splice(0, chooserSize));
+
+    // Deal one hand to everyone else (including human if not chooser)
+    const dealt = [];
+    for (let pid=0; pid<playerCount; pid++){
+      if (pid === chooserSeat){
+        dealt.push([]); // chosen later
+      } else {
+        dealt.push(sortHand(deck.splice(0, otherSize)));
+      }
+    }
+
+    // Dealing animation: all non-chooser players in order, then Hand A, then Hand B
+    const queue = [];
+    const maxRounds = Math.max(chooserSize, otherSize);
+    for (let r=0; r<maxRounds; r++){
+      for (let pid=0; pid<playerCount; pid++){
+        if (pid === chooserSeat) continue;
+        if (r < dealt[pid].length){
+          queue.push({pid: pid, card: dealt[pid][r], pile: "hand"});
+        }
+      }
+      if (r < handA.length) queue.push({pid: chooserSeat, card: handA[r], pile: "A"});
+      if (r < handB.length) queue.push({pid: chooserSeat, card: handB[r], pile: "B"});
+    }
+
+    // First to act is the player to the LEFT of the chooser/dealer (the seat with the double-hand).
+    // With our seat ordering (playerId increases counter‑clockwise around the table), “left” is +1.
+    const firstToAct = (chooserSeat + 1) % playerCount;
+
+return {
+      players,
+      turnPlayerId: firstToAct,
+      chooserSeat: chooserSeat,
+
+      // Opposite-colour forced lead (set when run stops)
+      mustPlayLowest: false,
+      mustPlayOppColor: null, // "red" | "black" | null
+
+      currentSuit: null,
+      lastCard: null,
+      centreCard,
+      centreRevealed: false,
+      playIndex: 0,
+
+      pots: { outWinnerId:null, queenSuit:null, queenWinnerId:null, runWinnerId:null },
+      run: { playerId:null, suit:null, lastRank:null, length:0, lastPlayIndex:-1 },
+      history: [],
+      queenReveal: null,
+
+      // persistent match economy
+      coins: coins,
+      bank: bank,
+
+      phase: "dealing",
+      handOptions: [handA, handB],
+      chosenHand: null,
+      handPiles: { A: [], B: [] },
+
+      dealAnim: { queue: queue, idx: 0, active: null, lastAt: 0, delayMs: 55, cardsPer: maxRounds }
+    };
+  }
+
+  function legalMoveIndices(state, player){
+    const hand = player.hand;
+    if (!hand.length) return [];
+
+    // If this player is required to lead with lowest (after run stops)
+    // NEW RULE: must be the opposite colour of the last card played (red vs black), if possible.
+    if (state.mustPlayLowest && state.turnPlayerId === player.id){
+      const want = state.mustPlayOppColor; // "red" | "black" | null
+      let candidateIdx = [];
+      if (want === "red" || want === "black"){
+        for (let i=0;i<hand.length;i++){
+          const red = isRedSuit(hand[i].suit);
+          if ((want === "red" && red) || (want === "black" && !red)){
+            candidateIdx.push(i);
+          }
+        }
+      }
+      if (want !== "red" && want !== "black"){
+        const lowIdx = lowestCardIndex(hand);
+        const low = hand[lowIdx];
+        const res=[];
+        for (let i=0;i<hand.length;i++){
+          if (hand[i].rank === low.rank) res.push(i);
+        }
+        return res;
+      }
+
+      // If no opposite-colour cards exist, there is no legal move: we will "knock"
+      // so the next clockwise player plays their lowest card of the required colour.
+      if (!candidateIdx.length){
+        return [];
+      }
+
+// Choose the lowest rank among the opposite-colour cards (allow ties)
+      let bestRank = hand[candidateIdx[0]].rank;
+      for (let k=1;k<candidateIdx.length;k++){
+        const idx = candidateIdx[k];
+        if (hand[idx].rank < bestRank) bestRank = hand[idx].rank;
+      }
+      const res=[];
+      for (let k=0;k<candidateIdx.length;k++){
+        const idx = candidateIdx[k];
+        if (hand[idx].rank === bestRank) res.push(idx);
+      }
+      return res;
+    }
+
+    // If a run is active, ONLY the owner of the exact-next card may play.
+    if (state.currentSuit !== null && state.lastCard !== null){
+      const needSuit = state.currentSuit;
+      const needRank = state.lastCard.rank + 1;
+      if (needRank <= 13){
+        for (let i=0;i<hand.length;i++){
+          if (hand[i].suit === needSuit && hand[i].rank === needRank){
+            return [i];
+          }
+        }
+      }
+      // No one can continue => run stops and last player leads lowest (set elsewhere)
+      return [];
+    }
+
+    // New lead => must play lowest card (choose if multiple equal rank)
+    const lowIdx = lowestCardIndex(hand);
+    const low = hand[lowIdx];
+    const res=[];
+    for (let i=0;i<hand.length;i++){
+      if (hand[i].rank === low.rank) res.push(i);
+    }
+    return res;
+  }
+
+  function nextHigherExists(state, suit, rank){
+    const want = rank+1;
+    if (want>13) return false;
+    for (const p of state.players){
+      for (const c of p.hand){
+        if (c.suit===suit && c.rank===want) return true;
+      }
+    }
+    return false;
+  }
+
+  function findNextRequired(state){
+    // Returns who holds the exact next card for the current run (same suit, rank+1)
+    if (state.currentSuit === null || state.lastCard === null) return null;
+    const needSuit = state.currentSuit;
+    const needRank = state.lastCard.rank + 1;
+    if (needRank > 13) return null;
+
+    for (let pid=0; pid<state.players.length; pid++){
+      const hand = state.players[pid].hand;
+      for (let i=0;i<hand.length;i++){
+        const c = hand[i];
+        if (c.suit === needSuit && c.rank === needRank){
+          return { playerId: pid, index: i, card: c };
+        }
+      }
+    }
+    return null;
+  }
+
+  function findCurrentQueenHolder(state, suit){
+    for (let pid=0; pid<state.players.length; pid++){
+      const hand = state.players[pid].hand;
+      for (let i=0;i<hand.length;i++){
+        const c = hand[i];
+        if (c.suit===suit && c.rank===12) return pid;
+      }
+    }
+    return null;
+  }
+
+  function findQueenPlayOwner(state, suit){
+    for (const e of state.history){
+      if (e.card.suit===suit && e.card.rank===12) return e.playerId;
+    }
+    return null;
+  }
+
+  function updateRunPot(state, playerId, played){
+    if (state.pots.runWinnerId !== null) return;
+    const r = state.run;
+
+    const interrupted = (r.lastPlayIndex !== state.playIndex - 1);
+    const differentPlayer = (r.playerId !== null && r.playerId !== playerId);
+    const differentSuit = (r.suit !== null && r.suit !== played.suit);
+
+    if (r.playerId===null || interrupted || differentPlayer || differentSuit){
+      r.playerId = playerId;
+      r.suit = played.suit;
+      r.lastRank = played.rank;
+      r.length = 1;
+      r.lastPlayIndex = state.playIndex;
+      return;
+    }
+
+    if (r.lastRank !== null && played.rank === r.lastRank + 1){
+      r.length++;
+      r.lastRank = played.rank;
+      r.lastPlayIndex = state.playIndex;
+      if (r.length >= 3) state.pots.runWinnerId = playerId;
+      return;
+    }
+
+    r.playerId = playerId;
+    r.suit = played.suit;
+    r.lastRank = played.rank;
+    r.length = 1;
+    r.lastPlayIndex = state.playIndex;
+  }
+
+  function applyMove(state, playerId, handIndex){
+    const p = state.players[playerId];
+    const card = p.hand[handIndex];
+    p.hand.splice(handIndex,1);
+
+    // once a card is played, the "must play lowest" requirement clears
+    if (state.turnPlayerId === playerId){
+      state.mustPlayLowest = false;
+      state.mustPlayOppColor = null;
+    }
+
+    state.playIndex += 1;
+
+    // If no active run, this card starts a new run
+    if (state.currentSuit === null || state.lastCard === null){
+      state.currentSuit = card.suit;
+      state.lastCard = card;
+      state._justChangedSuit = true;
+    } else {
+      // Active run: exact-next
+      state.lastCard = card;
+    }
+
+    state.history.push({playerId, card});
+    updateRunPot(state, playerId, card);
+
+    // Out pot ends the game immediately (your rule)
+    if (p.hand.length===0 && state.pots.outWinnerId===null){
+      state.pots.outWinnerId = playerId;
+      p.outAtPlay = state.playIndex;
+
+      // Reveal centre card immediately at end
+      state.centreRevealed = true;
+      state.pots.queenSuit = state.centreCard.suit;
+
+      const playedOwner = findQueenPlayOwner(state, state.pots.queenSuit);
+      const heldOwner = findCurrentQueenHolder(state, state.pots.queenSuit);
+      state.queenReveal = { playedBy: playedOwner, heldBy: heldOwner };
+      if (playedOwner !== null) state.pots.queenWinnerId = playedOwner;
+
+      settleAndQueueNextRound();
+      return;
+    }
+
+    // Determine next required card owner (safe: scans hands only)
+    const nxt = findNextRequired(state);
+
+    if (nxt){
+      state.turnPlayerId = nxt.playerId;
+      return;
+    }
+
+    // Run stops (next card not in any hand). Last player must lead lowest next.
+    // NEW RULE: that forced lowest lead must be the opposite colour of the last card played, if possible.
+    state.currentSuit = null;
+    state.lastCard = null;
+
+    state.turnPlayerId = playerId;
+    state.mustPlayLowest = true;
+
+    const lastWasRed = isRedSuit(card.suit);
+    state.mustPlayOppColor = lastWasRed ? "black" : "red";
+
+    lastPlayMsg = "Run stopped — you lead next with your lowest " + state.mustPlayOppColor + " card (or lowest if none).";
+    lastPlayAt = performance.now();
+  }
+
+  // --------------------------
+  // AI
+  // --------------------------
+  function chooseAIMove(state, playerId, difficulty){
+    const p = state.players[playerId];
+    const legal = legalMoveIndices(state, p);
+    if (legal.length===1) return legal[0];
+
+    const hand = p.hand;
+    if (difficulty==="basic"){
+      return pickLowestIndex(hand, legal);
+    }
+
+    // Standard heuristics
+    const wantsOut = hand.length <= 3 && state.pots.outWinnerId===null;
+    if (wantsOut) return pickLowestIndex(hand, legal);
+
+    const centreUnknown = !state.centreRevealed;
+
+    let best = legal[0];
+    let bestScore = -1e9;
+
+    for (const idx of legal){
+      const c = hand[idx];
+      let score = 0;
+
+      // shed lower ranks
+      score += (14 - c.rank);
+
+      // avoid queens before reveal
+      if (centreUnknown && c.rank===12) score -= 20;
+
+      // if queen suit revealed and pot open, prefer winning queen pot
+      if (state.centreRevealed && state.pots.queenSuit && state.pots.queenWinnerId===null){
+        if (c.rank===12 && c.suit===state.pots.queenSuit) score += 60;
+      }
+
+      // try extend run if possible
+      if (state.pots.runWinnerId===null){
+        const r = state.run;
+        const canExtend =
+          r.playerId===playerId &&
+          r.suit===c.suit &&
+          r.lastRank!==null &&
+          c.rank===r.lastRank+1 &&
+          r.lastPlayIndex===state.playIndex-1;
+        if (canExtend) score += 40;
+      }
+
+      if (score>bestScore){
+        bestScore = score;
+        best = idx;
+      }
+    }
+
+    return best;
+  }
+
+  function pickLowestIndex(hand, indices){
+    let best=indices[0];
+    for (const idx of indices){
+      if (hand[idx].rank < hand[best].rank) best = idx;
+    }
+    return best;
+  }
+  // --------------------------
+  // Knocking (forced opposite-colour lead fallback)
+  // --------------------------
+  function lowestIndicesOfColour(hand, want){
+    // want: "red" | "black"
+    let bestRank = null;
+    const idxs = [];
+    for (let i=0;i<hand.length;i++){
+      const red = isRedSuit(hand[i].suit);
+      const ok = (want === "red" && red) || (want === "black" && !red);
+      if (!ok) continue;
+      const r = hand[i].rank;
+      if (bestRank === null || r < bestRank){
+        bestRank = r;
+      }
+    }
+    if (bestRank === null) return [];
+    for (let i=0;i<hand.length;i++){
+      const red = isRedSuit(hand[i].suit);
+      const ok = (want === "red" && red) || (want === "black" && !red);
+      if (ok && hand[i].rank === bestRank) idxs.push(i);
+    }
+    return idxs;
+  }
+
+  function performKnockIfNeeded(){
+    if (!state) return false;
+    if (!state.mustPlayLowest) return false;
+    const want = state.mustPlayOppColor; // "red" | "black" | null
+    if (want !== "red" && want !== "black") return false;
+
+    const leaderId = state.turnPlayerId;
+    const leader = state.players[leaderId];
+    const legalLeader = legalMoveIndices(state, leader);
+    if (legalLeader.length) return false; // leader can play, no knock
+
+    // Knock: next clockwise player with an eligible card plays their lowest of the required colour.
+    const n = state.players.length;
+    for (let step=1; step<=n; step++){
+      const pid = (leaderId + step) % n;
+      const pl = state.players[pid];
+      if (!pl || !pl.hand || pl.hand.length===0) continue;
+
+      const idxs = lowestIndicesOfColour(pl.hand, want);
+      if (idxs.length){
+        // Make the knocker the acting player for this forced lead
+        state.turnPlayerId = pid;
+        state.mustPlayLowest = true;
+        state.mustPlayOppColor = want;
+
+        const playIdx = idxs[0]; // lowest rank; ties: just take first
+        const playedCard = pl.hand[playIdx];
+        applyMove(state, pid, playIdx);
+
+        lastPlayMsg = "Knock! " + pl.name + " played " + cardLabel(playedCard);
+        lastPlayAt = performance.now();
+        return true;
+      }
+    }
+
+    // Nobody can satisfy the colour requirement: fall back to normal lowest lead
+    state.mustPlayOppColor = null;
+    return false;
+  }
+
+
+  // --------------------------
+  // Canvas UI
+  // --------------------------
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  const statusEl = document.getElementById("status");
+  const chooser = document.getElementById("chooser");
+  const optAEl = document.getElementById("optA");
+  const optBEl = document.getElementById("optB");
+  const pickABtn = document.getElementById("pickA");
+  const pickBBtn = document.getElementById("pickB");
+  const playersSel = document.getElementById("players");
+  const diffSel = document.getElementById("difficulty");
+  const PLAYER_NAMES = ["You", "Gwen", "Lesley", "George", "Sue", "Caroline", "Paul"];
+  const newBtn = document.getElementById("newgame");
+  const autoBtn = document.getElementById("autoplay");
+  const nextBtn = document.getElementById("nextround");
+
+  let state = null;
+  let difficulty = "standard";
+  let aiAnimating = false;
+  let lastPlayMsg = "";
+  let lastPlayAt = 0;
+  const AI_MOVE_DELAY_MS = 1200;
+  const CARD_ANIM_MS = 420;
+  let currentAnim = null; // {playerId, card, from:{x,y}, to:{x,y}, start, duration, onDone}
+  let rafStarted = false;
+  let aiTimerId = null;
+  let dealTimerId = null;
+
+  // Card hitboxes for human hand
+  let humanCardBoxes = [];
+  let choiceHitA = null;
+  let choiceHitB = null;
+  let hoverChoice = null;
+ // {x,y,w,h, index, legal}
+
+  function resize(){
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    draw();
+  }
+  window.addEventListener("resize", resize);
+
+  newBtn.addEventListener("click", () => {
+    startNewGame();
+  });
+
+  function enableNextRoundButtons(on){
+    try{
+      const b1 = document.getElementById("nextround");
+      if (b1) b1.disabled = !on;
+      const b2 = document.getElementById("nextround_top");
+      if (b2) b2.disabled = !on;
+    }catch(e){}
+  }
+
+  if (nextBtn){
+    nextBtn.addEventListener("click", () => {
+      try{
+        if (!state || !state._pendingNext) return;
+        const p = state._pendingNext;
+        state._pendingNext = null;
+        nextBtn.disabled = true;
+        startDealFromMatch(p.pc, p.coins, p.bank, p.chooser);
+      } catch(e){}
+    });
+  }
+
+
+  if (pickABtn) pickABtn.addEventListener("click", () => pickHand(0));
+  if (pickBBtn) pickBBtn.addEventListener("click", () => pickHand(1));
+  if (optAEl) optAEl.addEventListener("click", () => pickHand(0));
+  if (optBEl) optBEl.addEventListener("click", () => pickHand(1));
+
+  autoBtn.addEventListener("click", () => {
+    if (!state) return;
+    if (aiAnimating) return;
+    if (currentAnim) return;
+    if (currentAnim) return;
+    if (state.turnPlayerId !== 0) return;
+    const legal = legalMoveIndices(state, state.players[0]);
+    if (legal.length===1){
+      applyMove(state, 0, legal[0]);
+      tickAI();
+      draw();
+    }
+  });
+
+  diffSel.addEventListener("change", () => {
+    difficulty = diffSel.value;
+    draw();
+  });
+
+  canvas.addEventListener("click", (ev) => {
+    if (!state) return;
+    if (aiAnimating) return;
+    if (currentAnim) return;
+    if (currentAnim) return;
+    if (state.turnPlayerId !== 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+
+    for (const b of humanCardBoxes){
+      if (!b.legal) continue;
+      if (x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h){
+        const played = state.players[0].hand[b.index];
+        const w = canvas.getBoundingClientRect().width;
+        const h = canvas.getBoundingClientRect().height;
+        const from = { x: b.x + b.w/2, y: b.y + b.h/2 };
+        const to = { x: w/2, y: h/2 - 40 };
+        startCardAnim(0, played, from, to, () => {
+          applyMove(state, 0, b.index);
+          lastPlayMsg = state.players[0].name + " played " + cardLabel(played);
+          lastPlayAt = performance.now();
+          tickAI();
+        });
+        draw();
+        return;
+      }
+    }
+  });
+
+  function startDealFromMatch(playerCount, coins, bank, chooserSeat){
+    // hard reset any pending timers/animations (so New Game always works)
+    try { if (aiTimerId) { clearTimeout(aiTimerId); aiTimerId = null; } } catch(e) {}
+    try { if (dealTimerId) { clearTimeout(dealTimerId); dealTimerId = null; } } catch(e) {}
+    aiAnimating = false;
+    currentAnim = null;
+
+    state = createInitialState(playerCount, coins, bank, chooserSeat);
+    difficulty = diffSel.value;
+    lastPlayMsg = "";
+    lastPlayAt = 0;
+    aiAnimating = false;
+    currentAnim = null;
+    draw();
+    // chooser overlay is shown automatically once dealing completes (if chooser is You)
+    tickAI();
+  }
+
+  function startNewGame(){
+    // New MATCH: reset coins + pots, chooser starts at You
+    const pc = parseInt(playersSel.value, 10);
+    const coins = Array.from({length: pc}, () => 50);
+    const bank = { out: 0, queen: 0, run: 0 };
+    startDealFromMatch(pc, coins, bank, 0);
+  }
+
+  function showChooser(){
+    if (!chooser) return;
+    if (!state) { chooser.style.display = "none"; return; }
+
+    if (state.phase === "choose" && state.chooserSeat === 0){
+      chooser.style.display = "flex";
+
+      const a = (state.handPiles && state.handPiles.A) ? state.handPiles.A : [];
+      const b = (state.handPiles && state.handPiles.B) ? state.handPiles.B : [];
+
+      // Build readable chips
+      function chips(cards){
+        return cards.map(c => {
+          const lab = cardLabel(c);
+          const suit = lab.length ? lab[lab.length-1] : "";
+          const red = (suit==="♥"||suit==="♦");
+          return "<span class='chip " + (red?"red":"blk") + "'>" + lab + "</span>";
+        }).join("");
+      }
+
+      if (typeof chooserTitle !== "undefined" && chooserTitle) chooserTitle.textContent = "Choose your starting hand (two distinct hands)";
+      if (typeof chooserHint !== "undefined" && chooserHint) chooserHint.textContent = "Hand A is left, Hand B is right. Hand size is computed from the 52-card deck (centre card removed and two full choice hands).";
+
+      if (typeof optAEl !== "undefined" && optAEl){
+        optAEl.innerHTML = "<div class='optHead'>Hand A</div><div class='chips'>" + chips(a) + "</div>";
+      }
+      if (typeof optBEl !== "undefined" && optBEl){
+        optBEl.innerHTML = "<div class='optHead'>Hand B</div><div class='chips'>" + chips(b) + "</div>";
+      }
+
+      if (typeof btnA !== "undefined" && btnA) btnA.disabled = false;
+      if (typeof btnB !== "undefined" && btnB) btnB.disabled = false;
+    } else {
+      chooser.style.display = "none";
+    }
+  }
+
+  function pickHand(which){
+    if (!state) return;
+    if (state.phase !== "choose") return;
+
+    const chosen = (which === 1) ? (state.handPiles.B || []) : (state.handPiles.A || []);
+    if (!chosen.length) return;
+
+    state.players[state.chooserSeat].hand = sortHand(chosen.slice());
+    state.chosenHand = (which === 1) ? "B" : "A";
+    state.players[state.chooserSeat].handChoice = state.chosenHand;
+
+    state.handPiles = { A: [], B: [] };
+    state.handOptions = [];
+
+    state.phase = "play";
+
+    if (chooser) chooser.style.display = "none";
+
+    // Dealer chooses a hand, but play starts with the player to the dealer's left.
+    lastPlayMsg = "You chose Hand " + state.chosenHand + ". " + state.players[state.turnPlayerId].name + " to act first.";
+    lastPlayAt = performance.now();
+
+    draw();
+    tickAI();
+  }
+
+  function tickAI(){
+    if (!state) return;
+    if (aiAnimating) return;
+    if (currentAnim) return;
+
+    const step = () => {
+      if (!state) { aiAnimating = false; return; }
+      if (state.phase !== "play") { aiAnimating = false; draw(); return; }
+      if (isGameOver(state)) { aiAnimating = false; draw(); return; }
+
+      const current = state.players[state.turnPlayerId];
+      if (current.hand.length === 0){
+        state.turnPlayerId = nextAlivePlayer(current.id);
+        draw();
+        aiTimerId = setTimeout(step, 80);
+        return;
+      }
+
+      // Knocking can trigger for both human and AI turns
+      if (performKnockIfNeeded()){
+        draw();
+        aiTimerId = setTimeout(step, 120);
+        return;
+      }
+      if (current.isHuman) {
+        // If the human cannot satisfy a forced opposite-colour lead, apply "knock"
+        if (performKnockIfNeeded()){
+          draw();
+          aiTimerId = setTimeout(step, 80);
+          return;
+        }
+        aiAnimating = false; draw(); return;
+      }
+
+      // AI plays one move, then schedule next AI if needed
+      const idx = chooseAIMove(state, current.id, difficulty);
+      const playedCard = current.hand[idx];
+      applyMove(state, current.id, idx);
+
+      lastPlayMsg = current.name + " played " + cardLabel(playedCard);
+      lastPlayAt = performance.now();
+
+      draw();
+
+      // Continue after a delay (so you can watch each play)
+      const extra = (state && state._justChangedSuit) ? (AI_MOVE_DELAY_MS * 2) : AI_MOVE_DELAY_MS;
+      if (state) state._justChangedSuit = false;
+      aiTimerId = setTimeout(step, extra);
+    };
+
+    aiAnimating = true;
+    const extra = (state && state._justChangedSuit) ? (AI_MOVE_DELAY_MS * 2) : AI_MOVE_DELAY_MS;
+      if (state) state._justChangedSuit = false;
+      aiTimerId = setTimeout(step, extra);
+  }
+
+  function isGameOver(s){
+    return s && s.pots && s.pots.outWinnerId !== null;
+  }
+  function settleAndQueueNextRound(){
+    if (!state) return;
+    if (state._roundSettled) return;
+    if (!isGameOver(state)) return;
+
+    state._roundSettled = true;
+
+    // Pay out pots to winners; Queen + Run pots may already be claimed earlier in the round.
+    // Any unclaimed pot amounts remain in state.bank and will carry over to the next deal.
+    try{
+      const bank = state.bank || {out:0, queen:0, run:0};
+      const coins = state.coins || [];
+
+      if (state.pots.outWinnerId !== null){
+        const w = state.pots.outWinnerId;
+        coins[w] = (coins[w] || 0) + (bank.out || 0);
+        bank.out = 0;
+      }
+      if (state.pots.queenWinnerId !== null){
+        const w = state.pots.queenWinnerId;
+        coins[w] = (coins[w] || 0) + (bank.queen || 0);
+        bank.queen = 0;
+      }
+      if (state.pots.runWinnerId !== null){
+        const w = state.pots.runWinnerId;
+        coins[w] = (coins[w] || 0) + (bank.run || 0);
+        bank.run = 0;
+      }
+
+      state.bank = bank;
+      state.coins = coins;
+    } catch(e){}
+
+    // Next deal: chooser rotates clockwise
+    const pc = state.players.length;
+    const nextChooser = (state.chooserSeat + 1) % pc;
+
+    // Snapshot match state for the next round
+    const nextCoins = (state.coins || []).slice();
+    const nextBank = { out: (state.bank ? state.bank.out : 0), queen: (state.bank ? state.bank.queen : 0), run: (state.bank ? state.bank.run : 0) };
+
+    // Next round is started manually via the Next Round button
+    state._pendingNext = { pc: pc, coins: nextCoins, bank: nextBank, chooser: nextChooser };
+    if (nextBtn) nextBtn.disabled = false;
+    lastPlayMsg = "Round finished — press Next Round to deal.";
+    lastPlayAt = performance.now();
+}
+
+
+  function processDealingFrame(w, h){
+    if (!state || state.phase !== "dealing" || !state.dealAnim) return;
+    const da = state.dealAnim;
+    const now = performance.now();
+    if (!da.lastAt) da.lastAt = now;
+
+    if (!da.active && da.idx < da.queue.length && (now - da.lastAt) >= da.delayMs){
+      const item = da.queue[da.idx];
+      const from = { x: w/2, y: h/2 - 40 };
+
+      let to;
+      if (item.pid === state.chooserSeat){
+        const base = getPlayerPos(state.chooserSeat, w, h);
+        const off = (item.pile === "A") ? -260 : 260;
+        to = { x: base.x + off, y: base.y + 70 };
+      } else {
+        to = getPlayerPos(item.pid, w, h);
+      }
+
+      da.active = { pid: item.pid, pile: item.pile, card: item.card, from: from, to: to, start: now, dur: 210 };
+      da.lastAt = now;
+      da.idx += 1;
+    }
+
+    if (da.active){
+      const tRaw = (now - da.active.start) / da.active.dur;
+      const t = Math.max(0, Math.min(1, tRaw));
+      const e = easeOutCubic(t);
+      const x = da.active.from.x + (da.active.to.x - da.active.from.x) * e;
+      const y = da.active.from.y + (da.active.to.y - da.active.from.y) * e;
+      drawCard(x, y, 52, 74, "", true, false);
+
+      if (t >= 1){
+        if (da.active.pid === state.chooserSeat){
+          if (da.active.pile === "A") state.handPiles.A.push(da.active.card);
+          else if (da.active.pile === "B") state.handPiles.B.push(da.active.card);
+        } else {
+          state.players[da.active.pid].hand.push(da.active.card);
+        }
+        da.active = null;
+      }
+    }
+
+    if (da.idx >= da.queue.length && !da.active){
+      // Sort all non-chooser hands + both choice piles
+      for (let pid=0; pid<state.players.length; pid++){
+        if (pid === state.chooserSeat) continue;
+        state.players[pid].hand = sortHand(state.players[pid].hand);
+      }
+      state.handPiles.A = sortHand(state.handPiles.A);
+      state.handPiles.B = sortHand(state.handPiles.B);
+
+      if (state.chooserSeat === 0){
+        state.phase = "choose";
+        lastPlayMsg = "Dealing complete. Choose Hand A (left) or Hand B (right).";
+        lastPlayAt = performance.now();
+      } else {
+        // AI chooser auto-picks the less runny hand (fewer long runs)
+        const a = state.handPiles.A || [];
+        const b = state.handPiles.B || [];
+        const pickA = (runRiskScore(a) <= runRiskScore(b));
+        const chosen = pickA ? a : b;
+
+        state.players[state.chooserSeat].hand = sortHand(chosen.slice());
+        state.chosenHand = pickA ? "A" : "B";
+        state.players[state.chooserSeat].handChoice = state.chosenHand;
+
+        state.handPiles = { A: [], B: [] };
+        state.handOptions = [];
+        state.phase = "play";
+
+        // Dealer (double-hand seat) chooses, but play starts with the player to the dealer's left.
+        lastPlayMsg = state.players[state.chooserSeat].name + " chose Hand " + state.chosenHand + ". " + state.players[state.turnPlayerId].name + " to act first.";
+        lastPlayAt = performance.now();
+
+        // If the chooser is AI, kick the turn loop now that play is active
+        tickAI();
+      }
+    }
+  }
+
+  function finalizeIfAllOut(){
+    if (!state) return;
+    let alive = 0;
+    for (const p of state.players){ if (p.hand.length > 0) alive++; }
+    if (alive !== 0) return;
+    // If centre not revealed yet, reveal now so queen suit is known
+    if (!state.centreRevealed){
+      state.centreRevealed = true;
+      state.pots.queenSuit = state.centreCard.suit;
+    }
+    if (state.pots.queenSuit){
+      const owner = findQueenPlayOwner(state, state.pots.queenSuit);
+      const holder = findCurrentQueenHolder(state, state.pots.queenSuit);
+      state.queenReveal = { playedBy: owner, heldBy: holder };
+      // If never played, award queen pot to holder (if any), otherwise leave as-is
+      if (state.pots.queenWinnerId === null && owner === null && holder !== null){
+        state.pots.queenWinnerId = holder;
+      }
+      if (state.pots.queenWinnerId === null && owner !== null){
+        state.pots.queenWinnerId = owner;
+      }
+    }
+  }
+
+  function draw(){
+    if (!ctx) return;
+
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+
+    // background
+    ctx.clearRect(0,0,w,h);
+    
+    ctx.globalAlpha = 1;
+ctx.fillStyle = "#0b1220";
+    ctx.fillRect(0,0,w,h);
+
+    // table felt
+    ctx.fillStyle = "#0f172a";
+    roundRect(ctx, w*0.04, h*0.06, w*0.92, h*0.84, 18, true, false);
+    ctx.strokeStyle = "#1f2a44";
+    ctx.lineWidth = 2;
+    roundRect(ctx, w*0.04, h*0.06, w*0.92, h*0.84, 18, false, true);
+
+    if (!state){
+      ctx.fillStyle="#e2e8f0";
+      ctx.font="700 44px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign="center";
+      ctx.fillText("QUEENY", w/2, h*0.42);
+      ctx.font="16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillStyle="#94a3b8";
+      ctx.fillText("Press “New Game” to start.", w/2, h*0.48);
+      statusEl.textContent = "";
+      return;
+    }
+
+    // dealing animation step
+    processDealingFrame(w, h);
+
+    // show chooser overlay if needed
+    showChooser();
+
+    // status + pots
+    const turnP = state.players[state.turnPlayerId];
+    let follow = "Lead: lowest";
+    if (state.currentSuit !== null && state.lastCard !== null){
+      const needRank = state.lastCard.rank + 1;
+      if (needRank <= 13) follow = "Next: " + rankLabel(needRank) + suitGlyph(state.currentSuit);
+      else follow = "Run ends";
+    }
+        const youCoins = (state.coins && typeof state.coins[0]==="number") ? state.coins[0] : 0;
+    statusEl.textContent = `Turn: ${turnP.name} • ${follow} • Plays: ${state.playIndex} • You: ${youCoins}c`;
+
+    drawPotsPanel(w, h);
+
+    // centre card and last card
+    drawCentreAndLast(w, h);
+
+    // AI players around top
+    drawAIPlayers(w, h);
+
+    // human hand
+    drawHumanHand(w, h);
+
+    // Last play banner (helps follow turns)
+    if (lastPlayMsg){
+      const age = performance.now() - lastPlayAt;
+      const alpha = age < 2200 ? 1 : Math.max(0, 1 - (age - 2200) / 1200);
+      if (alpha > 0){
+        ctx.globalAlpha = 0.75 * alpha;
+        ctx.fillStyle = "#0b1220";
+        const bannerY = h*0.48;
+        roundRect(ctx, w*0.25, bannerY, w*0.50, 38, 12, true, false);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#e2e8f0";
+        ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(lastPlayMsg, w/2, bannerY + 19);
+      }
+    }
+
+    // Animate current moving card (from player to centre)
+    if (currentAnim){
+      const now = performance.now();
+      const tRaw = (now - currentAnim.start) / currentAnim.duration;
+      const t = Math.max(0, Math.min(1, tRaw));
+      const e = easeOutCubic(t);
+      const x = currentAnim.from.x + (currentAnim.to.x - currentAnim.from.x) * e;
+      const y = currentAnim.from.y + (currentAnim.to.y - currentAnim.from.y) * e;
+      drawCard(x, y, 84, 120, cardLabel(currentAnim.card), false, true);
+      if (t >= 1){
+        const done = currentAnim.onDone;
+        currentAnim = null;
+        if (done) done();
+      }
+    }
+
+    // end overlay if game over
+    if (isGameOver(state)){
+      drawEndOverlay(w, h);
+    }
+  }
+
+  function drawPotsPanel(w, h){
+    const padX = w*0.06;
+    const padY = h*0.08;
+
+    const outW = state.pots.outWinnerId !== null ? state.players[state.pots.outWinnerId].name : "—";
+    const outAmt = (state.bank && typeof state.bank.out==="number") ? state.bank.out : 0;
+    const runW = state.pots.runWinnerId !== null ? state.players[state.pots.runWinnerId].name : "—";
+    const runAmt = (state.bank && typeof state.bank.run==="number") ? state.bank.run : 0;
+    const qSuit = state.pots.queenSuit ? suitName(state.pots.queenSuit) : "Hidden";
+    const qW = state.pots.queenWinnerId !== null ? state.players[state.pots.queenWinnerId].name : "—";
+    const qAmt = (state.bank && typeof state.bank.queen==="number") ? state.bank.queen : 0;
+
+    ctx.fillStyle="#0b1220";
+    ctx.globalAlpha = 0.72;
+    roundRect(ctx, padX, padY, 360, 116, 14, true, false);
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle="#e2e8f0";
+    ctx.font="700 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.textAlign="left";
+    ctx.fillText("Pots", padX+12, padY+22);
+
+    const row = (y, icon, label, value, done) => {
+      ctx.fillStyle = done ? "#22c55e" : "#94a3b8";
+      ctx.font = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText(icon, padX+12, y);
+
+      ctx.fillStyle="#cbd5e1";
+      ctx.font="600 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText(label, padX+34, y);
+
+      ctx.fillStyle="#e2e8f0";
+      ctx.font="13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText(value, padX+200, y);
+    };
+
+    row(padY+46, "🏁", "Out", outW + " (" + outAmt + "c)", state.pots.outWinnerId !== null);
+    row(padY+70, "👑", "Queen ("+qSuit+")", qW + " (" + qAmt + "c)", state.pots.queenWinnerId !== null);
+    row(padY+94, "🔗", "Run (3+)", runW + " (" + runAmt + "c)", state.pots.runWinnerId !== null);
+
+    // Mini help
+    ctx.fillStyle="#94a3b8";
+    ctx.font="12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText("Each deal: everyone antes 3 (1 per pot). Queen + Run carry over.", padX+12, padY+112);
+  }
+
+  function drawCentreAndLast(w, h){
+    const cx = w/2;
+    const cy = h/2 - 40;
+
+    // centre card
+    const centreLabel = state.centreRevealed ? cardLabel(state.centreCard) : "Face-down";
+    drawCard(cx-52, cy-60, 96, 128, state.centreRevealed ? centreLabel : "Centre", !state.centreRevealed, false);
+
+    ctx.fillStyle="#94a3b8";
+    ctx.font="12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.textAlign="center";
+    ctx.fillText(state.centreRevealed ? "Centre (revealed)" : "Centre (hidden)", cx-4, cy+82);
+
+    // last played
+    let last = null;
+    if (state.history.length) last = state.history[state.history.length-1].card;
+    drawCard(cx+92, cy-60, 96, 128, last ? cardLabel(last) : "—", false, false);
+    ctx.fillStyle="#94a3b8";
+    ctx.font="12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText("Last Played", cx+140, cy+82);
+  }
+
+  
+  function drawChoicePiles(w, h){
+    if (!state || (state.phase !== "choose" && state.phase !== "dealing")) return;
+
+    const base = getPlayerPos(0, w, h);
+    const xA = base.x - 260;
+    const xB = base.x + 260;
+    const y = base.y + 70;
+
+    // Titles
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "800 16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText("Hand A", xA, y-120);
+    ctx.fillText("Hand B", xB, y-120);
+
+    if (state.phase === "choose" && state.chooserSeat === 0){
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText("Click a hand to choose", base.x, y-145);
+    }
+
+    function drawFan(cards, cx){
+      const n = cards.length;
+      if (!n){
+        // empty placeholder
+        ctx.globalAlpha = 0.25;
+        roundRect(ctx, cx-90, y-40, 180, 120, 14, true, false);
+        ctx.globalAlpha = 1;
+        return;
+      }
+
+      // Fan parameters: wide enough to read labels
+      const maxShow = Math.min(n, 26);
+      const cardW = 52;
+      const cardH = 76;
+      const startDeg = 210;
+      const endDeg = 330;
+      const step = maxShow > 1 ? (endDeg - startDeg) / (maxShow - 1) : 0;
+      const radius = 155;
+
+      for (let i=0;i<maxShow;i++){
+        const c = cards[i];
+        const deg = startDeg + step*i;
+        const rad = deg * Math.PI / 180;
+        const px = cx + Math.cos(rad)*radius;
+        const py = y + Math.sin(rad)*radius;
+
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate((deg-270) * Math.PI / 180 * 0.22);
+        // during dealing show facedown, during choose show face-up
+        const facedown = (state.phase !== "choose");
+        drawCard(0, 0, cardW, cardH, facedown ? "" : cardLabel(c), facedown, false);
+        ctx.restore();
+      }
+
+      // count label
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText(n + " cards", cx, y+86);
+    }
+
+    drawFan(state.handPiles.A || [], xA);
+    drawFan(state.handPiles.B || [], xB);
+
+    // Hit boxes for choosing
+    choiceHitA = { x:xA-140, y:y-180, w:280, h:260 };
+    choiceHitB = { x:xB-140, y:y-180, w:280, h:260 };
+
+    if (state.phase === "choose" && state.chooserSeat === 0){
+      // highlight on hover
+      if (hoverChoice === "A"){
+        ctx.globalAlpha = 0.18; ctx.fillStyle = "#22c55e";
+        roundRect(ctx, choiceHitA.x, choiceHitA.y, choiceHitA.w, choiceHitA.h, 18, true, false);
+        ctx.globalAlpha = 1;
+      } else if (hoverChoice === "B"){
+        ctx.globalAlpha = 0.18; ctx.fillStyle = "#22c55e";
+        roundRect(ctx, choiceHitB.x, choiceHitB.y, choiceHitB.w, choiceHitB.h, 18, true, false);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  function drawAIPlayers(w, h){
+    ctx.save();
+    const n = state.players.length;
+
+    for (let i=1;i<n;i++){
+      const pl = state.players[i];
+      const pos = getPlayerPos(i, w, h);
+      const x = pos.x;
+      const y = pos.y;
+      const isTurn = state.turnPlayerId===i;
+
+      // Larger seat tile so avatars are clearly visible
+      const box = 118;
+      const bx = x - box/2;
+      const by = y - 66; // slightly above centre
+
+      // Border / turn highlight
+      ctx.fillStyle = isTurn ? "#22c55e" : "#334155";
+      roundRect(ctx, bx-4, by-4, box+8, box+8, 18, true, false);
+
+      // Avatar background (image if available, else initials)
+      const nm = pl.name;
+      const imgSrc = (AVATARS && AVATARS[nm]) ? AVATARS[nm] : null;
+
+      if (imgSrc){
+        try{
+          const img = AVATAR_IMG[nm];
+          if (img && img.complete && img.naturalWidth > 0){
+            ctx.save();
+          roundRect(ctx, bx, by, box, box, 16, true, false);
+          ctx.clip();
+          ctx.drawImage(img, bx, by, box, box);
+          ctx.restore();
+
+          } else {
+            // avatar still loading — draw placeholder tile (no flicker)
+            ctx.fillStyle = "#0b1220";
+            roundRect(ctx, bx, by, box, box, 16, true, false);
+          }
+        } catch(e){
+          // fallback to dark tile if image fails
+          ctx.fillStyle = "#0b1220";
+          roundRect(ctx, bx, by, box, box, 16, true, false);
+        }
+      } else {
+        ctx.fillStyle = "#0b1220";
+        roundRect(ctx, bx, by, box, box, 16, true, false);
+
+        const initials = (nm||"AI").split(/\s+/).slice(0,2).map(s => (s||"").charAt(0).toUpperCase()).join("");
+        ctx.fillStyle = "#e2e8f0";
+        ctx.font = "900 26px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+        ctx.textAlign="center";
+        ctx.textBaseline="middle";
+        ctx.fillText(initials || "AI", x, by + box/2);
+      }
+
+      // Name strip
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "#0f172a";
+      roundRect(ctx, bx, by + box - 26, box, 26, 12, true, false);
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "700 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign="center";
+      ctx.textBaseline="middle";
+      ctx.fillText(nm, x, by + box - 13);
+
+      // If this seat was the chooser, show which option hand they took
+      if (state && state.chooserSeat === pl.id && state.chosenHand){
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "600 11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+        ctx.textAlign="center";
+        ctx.textBaseline="middle";
+        ctx.fillText("Hand " + state.chosenHand, x, by + box - 38);
+      }
+
+
+      // Card stack is drawn just OUTSIDE the avatar tile (away from table centre)
+      const stack = Math.min(pl.hand.length, 10);
+
+      // compute outward direction (from table centre to seat)
+      const tcx = w/2;
+      const tcy = h/2 - 10;
+      let dx = x - tcx;
+      let dy = y - tcy;
+      const dl = Math.sqrt(dx*dx + dy*dy) || 1;
+      dx /= dl; dy /= dl;
+
+      // place stack just outside the tile so avatar stays visible
+      const baseX = x + dx * (box/2 + 36);
+      const baseY = (by + box/2) + dy * (box/2 + 10);
+
+      for (let k=0;k<stack;k++){
+        const ox = baseX - 18 + k*3.5;
+        const oy = baseY - 6 + k*1.8;
+        drawCard(ox, oy, 42, 60, "", true, false);
+      }
+
+      // Card count
+      ctx.fillStyle = "#cbd5e1";
+      ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign="center";
+      ctx.textBaseline="alphabetic";
+      ctx.fillText(pl.hand.length + " cards", x, by + box + 18);
+    }
+    ctx.restore();
+  }
+
+
+  function drawHumanHand(w, h){
+    const human = state.players[0];
+    if (state.phase !== "play"){
+      humanCardBoxes = [];
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("Choose Hand A (left) or Hand B (right)", w/2, h-28);
+      return;
+    }
+
+    const legal = legalMoveIndices(state, human);
+    const isTurn = state.turnPlayerId===0 && !currentAnim && !aiAnimating;
+
+    const seat = getPlayerPos(0, w, h);
+
+    // Fan your cards around the bottom seat
+    const count = human.hand.length;
+    const maxFan = Math.min(22, Math.max(8, count));
+    const fan = Math.min(count, maxFan);
+
+    const radius = 180;
+    const startDeg = 210;
+    const endDeg = 330;
+    const step = fan > 1 ? (endDeg - startDeg) / (fan - 1) : 0;
+
+    humanCardBoxes = [];
+
+    // If more cards than fan, we still draw all but tightly (linear fallback)
+    if (count > maxFan){
+      const baseY = seat.y + 40;
+      const spacing = clamp((w - 220) / Math.max(1, count), 34, 56);
+      const startX = w/2 - ((count-1)*spacing)/2;
+      for (let i=0;i<count;i++){
+        const c = human.hand[i];
+        const x = startX + i*spacing;
+        const y = baseY;
+        const isLegal = isTurn && (legal.indexOf(i) >= 0);
+        drawCard(x, y, 78, 112, cardLabel(c), false, isLegal);
+        humanCardBoxes.push({x:x-39, y:y-56, w:78, h:112, index:i, legal:isLegal});
+      }
+    } else {
+      for (let i=0;i<count;i++){
+        const deg = startDeg + step*i;
+        const rad = deg * Math.PI / 180;
+        const x = seat.x + Math.cos(rad)*radius;
+        const y = seat.y + Math.sin(rad)*radius + 50;
+
+        const c = human.hand[i];
+        const isLegal = isTurn && (legal.indexOf(i) >= 0);
+        drawCard(x, y, 78, 112, cardLabel(c), false, isLegal);
+        humanCardBoxes.push({x:x-39, y:y-56, w:78, h:112, index:i, legal:isLegal});
+      }
+    }
+
+    ctx.fillStyle = isTurn ? "#e2e8f0" : "#94a3b8";
+    ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.textAlign="center";
+    const msg = (state.phase !== "play") ? "Choose your starting hand (two distinct hands, no overlap) above."
+               : (isTurn ? "Your turn — click a highlighted legal card." : "Waiting for AI...");
+    ctx.fillText(msg, w/2, h-32);
+  }
+
+  function drawEndOverlay(w, h){
+    const outW = state.pots.outWinnerId !== null ? state.players[state.pots.outWinnerId].name : "—";
+    const outAmt = (state.bank && typeof state.bank.out==="number") ? state.bank.out : 0;
+    const runW = state.pots.runWinnerId !== null ? state.players[state.pots.runWinnerId].name : "—";
+    const runAmt = (state.bank && typeof state.bank.run==="number") ? state.bank.run : 0;
+
+    const qSuit = state.pots.queenSuit ? state.pots.queenSuit : null;
+    const qSuitName = qSuit ? suitName(qSuit) : "Hidden";
+    const playedBy = state.queenReveal ? state.queenReveal.playedBy : null;
+    const heldBy = state.queenReveal ? state.queenReveal.heldBy : null;
+
+    const playedByName = (playedBy !== null) ? state.players[playedBy].name : "Not played";
+    const heldByName = (heldBy !== null) ? state.players[heldBy].name : "Nobody (already played)";
+
+    ctx.globalAlpha = 0.62;
+    ctx.fillStyle="#000";
+    ctx.fillRect(0,0,w,h);
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle="#ffffff";
+    ctx.font="800 52px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.textAlign="center";
+    ctx.fillText("QUEEN REVEAL", w/2, h*0.22);
+
+    // Big centre card reveal
+    const big = qSuit ? ("Q" + suitGlyph(qSuit)) : "Q?";
+    drawCard(w/2, h*0.40, 150, 210, big, false, true);
+
+    ctx.fillStyle="#cbd5e1";
+    ctx.font="18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText("Queen suit: " + qSuitName, w/2, h*0.54);
+
+    ctx.fillStyle="#e2e8f0";
+    ctx.font="20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText("Played by: " + playedByName, w/2, h*0.60);
+
+    ctx.fillStyle="#94a3b8";
+    ctx.font="16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText("If not played, it was held by: " + heldByName, w/2, h*0.66);
+
+    // Pots summary
+    ctx.fillStyle="#e2e8f0";
+    ctx.font="18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText("Out Pot: " + outW + "   •   Run Pot: " + runW, w/2, h*0.74);
+
+    ctx.font="14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillStyle="#94a3b8";
+    ctx.fillText("Press New Game to play again.", w/2, h*0.82);
+  }
+
+  function drawCard(cx, cy, w, h, label, facedown, glow){
+    label = label || "";
+    facedown = !!facedown;
+    glow = !!glow;
+
+    const x = cx - w/2, y = cy - h/2;
+    const r = Math.min(18, w*0.16);
+
+    // Shadow
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = "#000";
+    roundRect(ctx, x+2, y+4, w, h, r, true, false);
+    ctx.restore();
+
+    if (glow){
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = "#22c55e";
+      roundRect(ctx, x-4, y-4, w+8, h+8, r+4, true, false);
+      ctx.restore();
+    }
+
+    // Card base
+    ctx.fillStyle = "#f8fafc";
+    roundRect(ctx, x, y, w, h, r, true, false);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 2;
+    roundRect(ctx, x, y, w, h, r, false, true);
+
+    // Back
+    if (facedown){
+      ctx.save();
+      ctx.fillStyle = "#0b3a66";
+      roundRect(ctx, x+6, y+6, w-12, h-12, Math.max(6, r-4), true, false);
+      ctx.strokeStyle = "rgba(255,255,255,.55)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, x+10, y+10, w-20, h-20, Math.max(4, r-6), false, true);
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = "rgba(255,255,255,.85)";
+      ctx.lineWidth = 1;
+      for (let i=0;i<10;i++){
+        const px = x+14 + i*((w-28)/9);
+        ctx.beginPath();
+        ctx.moveTo(px, y+14);
+        ctx.lineTo(px, y+h-14);
+        ctx.stroke();
+      }
+      for (let j=0;j<8;j++){
+        const py = y+14 + j*((h-28)/7);
+        ctx.beginPath();
+        ctx.moveTo(x+14, py);
+        ctx.lineTo(x+w-14, py);
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
+    // Parse rank/suit
+    const t = label;
+    const suit = t.length ? t[t.length-1] : "";
+    const rankText = t.length ? t.slice(0, t.length-1) : "";
+    const isRed = (suit==="♥" || suit==="♦");
+    const ink = isRed ? "#c81e1e" : "#0f172a";
+
+    // Corner: rank then suit underneath (your preferred style)
+    ctx.fillStyle = ink;
+
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.font = "900 " + Math.floor(h*0.24) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(rankText, x+10, y+8);
+    ctx.font = "900 " + Math.floor(h*0.22) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(suit, x+12, y+8+Math.floor(h*0.24));
+
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.font = "900 " + Math.floor(h*0.24) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(rankText, x+w-10, y+h-8);
+    ctx.font = "900 " + Math.floor(h*0.22) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(suit, x+w-12, y+h-8-Math.floor(h*0.24));
+
+    // Single center suit (no pips)
+    ctx.save();
+    ctx.globalAlpha = 0.14;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "900 " + Math.floor(h*0.72) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillStyle = ink;
+    ctx.fillText(suit, x+w/2, y+h/2+4);
+    ctx.restore();
+
+    // Optional: subtle face-card letter in center
+    if (rankText==="J" || rankText==="Q" || rankText==="K"){
+      ctx.save();
+      ctx.globalAlpha = 0.10;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "900 " + Math.floor(h*0.60) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillStyle = ink;
+      ctx.fillText(rankText, x+w/2, y+h/2 - Math.floor(h*0.10));
+      ctx.restore();
+    }
+  }
+
+
+
+
+  function suitName(s){
+    return s==="S" ? "Spades (♠)" : s==="H" ? "Hearts (♥)" : s==="D" ? "Diamonds (♦)" : "Clubs (♣)";
+  }
+
+  function roundRect(ctx, x, y, w, h, r, fill, stroke){
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rr);
+    ctx.arcTo(x+w, y+h, x, y+h, rr);
+    ctx.arcTo(x, y+h, x, y, rr);
+    ctx.arcTo(x, y, x+w, y, rr);
+    ctx.closePath();
+    if (fill) ctx.fill();
+    if (stroke) ctx.stroke();
+  }
+
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+  function getPlayerPos(playerId, w, h){
+    // 6–8 seats around a circle. Player 0 (You) is at bottom.
+    const n = state ? state.players.length : 6;
+    const cx = w/2;
+    const cy = h/2 - 10;
+    // Seat radius: larger => players spaced further out from the centre (prevents end-game overlap)
+    const r = Math.min(w,h) * 0.40;
+
+    // angle: player 0 at 90deg (bottom), then clockwise
+    const baseDeg = 90;
+    const step = 360 / n;
+    const angDeg = baseDeg + (playerId * step);
+    const rad = angDeg * Math.PI / 180;
+
+    return { x: cx + Math.cos(rad)*r, y: cy + Math.sin(rad)*r };
+  }
+
+  function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
+
+  function nextAlivePlayer(fromId){
+    const n = state.players.length;
+    for (let step=1; step<=n; step++){
+      const id = (fromId + step) % n;
+      if (state.players[id].hand.length > 0) return id;
+    }
+    return fromId;
+  }
+
+  function startCardAnim(playerId, card, from, to, onDone){
+    const now = performance.now();
+    currentAnim = { playerId, card, from, to, start: now, duration: CARD_ANIM_MS, onDone };
+  }
+
+  // Boot
+  startNewGame();
+  resize();
+  if (!rafStarted){
+    rafStarted = true;
+    const frame = () => { draw(); requestAnimationFrame(frame); };
+    requestAnimationFrame(frame);
+  }
+})();
+</script>
+</body>
+</html>
