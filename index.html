@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Queeny (Single File)</title>
   <style>
-    html, body { margin:0; padding:0; height:100%; background:#0b1220; color:#e2e8f0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-    #wrap { display:flex; flex-direction:column; height:100%; }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#0b1220; color:#e2e8f0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    #wrap { display:flex; flex-direction:column; height:100%; overflow:hidden; }
     #topbar {
       display:flex; gap:10px; align-items:center; padding:10px 12px;
       border-bottom:1px solid #1f2a44; background:#0f172a;
@@ -19,8 +20,8 @@
     }
     button:hover, select:hover { background:#243244; }
     #status { margin-left:auto; font-size:13px; color:#cbd5e1; white-space:nowrap; }
-    #canvas { flex:1; display:block; width:100%; height:100%; }
-    #hint { padding:10px 12px; border-top:1px solid #1f2a44; background:#0f172a; font-size:13px; color:#94a3b8; }
+    #canvas { flex:1; display:block; width:100%;  }
+    #hint { display:none;  padding:10px 12px; border-top:1px solid #1f2a44; background:#0f172a; font-size:13px; color:#94a3b8; }
     .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
            border:1px solid #334155; border-bottom-width:2px; border-radius:8px; padding:1px 6px; color:#e2e8f0; }
   
@@ -30,6 +31,16 @@
 #chooser .chip { display:inline-flex; align-items:center; justify-content:center; padding:4px 8px; border-radius:999px; font-weight:800; font-size:13px; border:1px solid rgba(148,163,184,.35); background:rgba(248,250,252,.10); color:#e2e8f0; }
 #chooser .chip.red { color:#fecaca; border-color:rgba(239,68,68,.35); }
 #chooser .chip.blk { color:#e2e8f0; }
+
+#profileModal .avatarCard.sel { background: rgba(34,197,94,.14); border-color: rgba(34,197,94,.55); }
+#profileModal .avatarGrid { display:grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap:12px; padding:6px; border-radius:10px; background: rgba(15,23,42,.35); max-height:260px; overflow:auto; }
+#profileModal .avatarCard { display:flex; flex-direction:column; align-items:center; gap:8px; padding:10px 10px 12px; border-radius:14px; border:1px solid rgba(148,163,184,.35); background: rgba(248,250,252,.06); color:#e2e8f0; cursor:pointer; }
+#profileModal .avatarPic { width:92px; height:92px; border-radius:10px; border:1px solid rgba(148,163,184,.25); background: rgba(11,18,32,.9); overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:22px; letter-spacing:.5px; }
+#profileModal .avatarPic img { width:100%; height:100%; object-fit:cover; display:block; }
+#profileModal .avatarName { width:100%; text-align:center; font-size:13px; font-weight:800; color:#e2e8f0; }
+#profileModal input::placeholder { color: rgba(148,163,184,.8); }
+
+
 </style>
 </head>
 <body>
@@ -53,13 +64,53 @@
     </label>
     <button id="newgame">New Game</button>
     <button id="nextround" disabled>Next Round</button>
-    <button id="autoplay" title="Plays the only legal move, if forced">Auto-play (if forced)</button>
-    <div id="status"></div>
+<div id="status"></div>
   </div>
 
   <div id="chooser" style="display:none; position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.55); align-items:center; justify-content:center; z-index:10;"><div style="width:min(920px,92vw); background:#0f172a; border:1px solid #334155; border-radius:18px; padding:18px 18px 14px;"><div style="font-size:18px; font-weight:700; color:#fff; margin-bottom:8px;">Choose your starting hand (two distinct hands, no overlap)</div><div style="color:#94a3b8; font-size:13px; margin-bottom:12px;">Player 1 gets two distinct hands to choose from (no overlap). Pick one to start.</div><div id="optA" style="padding:10px; border:1px solid #334155; border-radius:14px; margin-bottom:10px; cursor:pointer; background:#0b1220;"></div><div id="optB" style="padding:10px; border:1px solid #334155; border-radius:14px; margin-bottom:14px; cursor:pointer; background:#0b1220;"></div><div style="display:flex; gap:10px; justify-content:flex-end;"><button id="pickA">Use Option A</button><button id="pickB">Use Option B</button></div></div></div>
 
+
+  <div id="profileModal" style="display:none; position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.55); align-items:center; justify-content:center; z-index:30;">
+    <div style="width:min(720px,92vw); background:#0f172a; border:1px solid #334155; border-radius:18px; padding:18px 18px 14px;">
+      <div style="font-size:18px; font-weight:800; color:#fff; margin-bottom:10px;">Choose your player</div>
+      <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start;">
+        <div style="flex:1; min-width:200px;">
+          <div style="color:#94a3b8; font-size:13px; margin-bottom:6px;">Name</div>
+          <input id="playerName" maxlength="18" placeholder="Your name" style="width:100%; background:#0b1220; color:#e2e8f0; border:1px solid #334155; border-radius:12px; padding:10px 12px; font-size:14px; outline:none;" />
+          <div style="color:#64748b; font-size:12px; margin-top:8px;">This is shown on your seat during play.</div>
+        </div>
+        <div style="flex:2; min-width:300px;">
+          <div style="color:#94a3b8; font-size:13px; margin-bottom:10px;">Player</div>
+          <div id="avatarGrid" class="avatarGrid"></div>
+          <div style="color:#64748b; font-size:12px; margin-top:8px;">Select a player name. (If an image exists, it will show; otherwise initials.)</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:14px;">
+        <button id="profileCancel">Cancel</button>
+        <button id="profileStart">Start</button>
+      </div>
+    
+  <div id="coinsModal" style="display:none; position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.55); align-items:center; justify-content:center; z-index:40;">
+    <div style="width:min(520px,92vw); background:#0f172a; border:1px solid #334155; border-radius:18px; padding:16px 16px 12px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
+        <div style="font-size:18px; font-weight:800; color:#fff;">Coins</div>
+        <button id="coinsClose" title="Close">Close</button>
+      </div>
+      <div style="color:#94a3b8; font-size:13px; margin-bottom:10px;">Current balances (updates live).</div>
+      <div id="coinsList" style="display:flex; flex-direction:column; gap:8px;"></div>
+    </div>
+  </div>
+</div>
+  </div>
+
+
   <canvas id="canvas"></canvas>
+
+  <!-- Bottom player HUD (fixed to viewport) -->
+    </div>
+    <div class="bph-name" id="bphName">Player</div>
+  </div>
+
 
   <div id="hint">
     Click a <span class="kbd">highlighted</span> card to play. Rules: Aces low • New lead plays lowest rank (tie allowed) • Runs are exact-next (A→2→3…) in the same suit. Cards are auto-sorted by suit after dealing.
@@ -93,7 +144,8 @@
     "Caroline": "avatars/caroline.png",
     "Gwen": "avatars/gwen.png",
     "Lesley": "avatars/lesley.png",
-    "George": "avatars/george.png"
+    "George": "avatars/george.png",
+    "Nigel": "avatars/nigel.png"
   };
 
 
@@ -192,13 +244,13 @@ function compareCard(a,b){
   // --------------------------
   // Game State
   // --------------------------
-    function createInitialState(playerCount, coins, bank, chooserSeat){
+    function createInitialState(playerCount, coins, bank, chooserSeat, humanProfile){
     // Persistent match state (coins + accumulating pots)
     if (!coins || !coins.length){
-      coins = Array.from({length: playerCount}, () => 50);
+      coins = Array.from({length: playerCount}, () => 500);
     } else {
       coins = coins.slice(0, playerCount);
-      while (coins.length < playerCount) coins.push(50);
+      while (coins.length < playerCount) coins.push(500);
     }
 
     if (!bank){
@@ -209,6 +261,12 @@ function compareCard(a,b){
 
     chooserSeat = (typeof chooserSeat === "number") ? chooserSeat : 0;
     chooserSeat = ((chooserSeat % playerCount) + playerCount) % playerCount;
+
+    humanProfile = humanProfile || {};
+    const humanName = (humanProfile.name ? String(humanProfile.name) : "Player").trim() || "Player";
+    const humanAvatarKey = humanProfile.avatarKey ? String(humanProfile.avatarKey) : null;
+
+    const aiPool = AI_NAMES.filter(function(nm){ return String(nm) !== String(humanName); });
 
     // Ante: 3 coins per player per game (1 to each pot). Queen + Run pots can carry over.
     for (let pid=0; pid<playerCount; pid++){
@@ -242,7 +300,8 @@ const otherSize = Math.max(0, chooserSize - 1);
     for (let i=0;i<playerCount;i++){
       players.push({
         id:i,
-        name: (i===0 ? "Nigel" : ((i-1) < AI_NAMES.length ? AI_NAMES[i-1] : ("AI " + i))),
+        name: (i===0 ? humanName : ((i-1) < aiPool.length ? aiPool[i-1] : ("AI " + i))),
+        avatarKey: (i===0 ? humanAvatarKey : null),
         isHuman: i===0,
         hand: [],       // chooser stays empty until choose
         outAtPlay: null,
@@ -301,6 +360,10 @@ return {
       run: { playerId:null, suit:null, lastRank:null, length:0, lastPlayIndex:-1 },
       history: [],
       queenReveal: null,
+
+
+      // Per-player visual badges (persist for the round)
+      badges: Array.from({length: playerCount}, () => ({ queen: false, queenSuits: [], run:false, runSuit:null, runSeq:null })),
 
       // persistent match economy
       coins: coins,
@@ -491,7 +554,36 @@ return {
     }
 
     state.history.push({playerId, card});
+
+    // Visual badge: played a Queen
+    try{
+      if (card && card.rank === 12 && state && state.badges && state.badges[playerId]){
+        const bq = state.badges[playerId];
+        bq.queen = true;
+        if (!bq.queenSuits) bq.queenSuits = [];
+        // Only count each suit once per player per round
+        if (bq.queenSuits.indexOf(card.suit) < 0){
+          bq.queenSuits.push(card.suit);
+        }
+      }
+    } catch(e){}
+
     updateRunPot(state, playerId, card);
+
+    // Visual badge: completed a 3+ run (Run pot winner)
+    try{
+      if (state && state.pots && state.pots.runWinnerId !== null && state.badges && state.badges[state.pots.runWinnerId]){
+        state.badges[state.pots.runWinnerId].run = true;
+        try{
+          const r = state.run;
+          state.badges[state.pots.runWinnerId].runSuit = r.suit;
+          const start = r.lastRank - (r.length - 1);
+          const seq = [];
+          for (let k=0;k<r.length;k++) seq.push(start + k);
+          state.badges[state.pots.runWinnerId].runSeq = seq.join(",");
+        }catch(e){}
+      }
+    } catch(e){}
 
     // Out pot ends the game immediately (your rule)
     if (p.hand.length===0 && state.pots.outWinnerId===null){
@@ -680,10 +772,177 @@ return {
   const diffSel = document.getElementById("difficulty");
   const PLAYER_NAMES = ["You", "Gwen", "Lesley", "George", "Sue", "Caroline", "Paul"];
   const newBtn = document.getElementById("newgame");
-  const autoBtn = document.getElementById("autoplay");
-  const nextBtn = document.getElementById("nextround");
+const nextBtn = document.getElementById("nextround");
+
+  
+  const coinsBtn = document.getElementById("coinsbtn");
+  const coinsModal = document.getElementById("coinsModal");
+  const coinsClose = document.getElementById("coinsClose");
+  const coinsBody = document.getElementById("coinsBody");
+// --------------------------
+  // Player Profile (Name + Avatar) — shown before starting a new game
+  // --------------------------
+  const profileModal  = document.getElementById("profileModal");
+  const playerNameInp = document.getElementById("playerName");
+  const avatarGridEl = document.getElementById("avatarGrid");
+  const profileCancel = document.getElementById("profileCancel");
+  const profileStart  = document.getElementById("profileStart");
+
+  // Profile picker — choose one of the named players (this is both name + avatar key)
+  const PROFILE_PLAYERS = ["Lesley","George","Sue","Caroline","Paul","Gwen","Nigel"];
+
+  
+function _buildAvatarGrid(){
+  if (!avatarGridEl) return;
+  avatarGridEl.innerHTML = "";
+
+  for (let i=0; i<PROFILE_PLAYERS.length; i++){
+    const nm = PROFILE_PLAYERS[i];
+
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "avatarCard";
+    card.setAttribute("data-avatarkey", nm);
+
+    const pic = document.createElement("div");
+    pic.className = "avatarPic";
+
+    // Fallback initials (shown immediately, replaced by photo when it loads)
+    const fallback = initials(nm) || nm.slice(0,2).toUpperCase();
+    pic.textContent = fallback;
+
+    // If we have a known image path, load it async and swap in on load
+    const src = (AVATARS && AVATARS[nm]) ? AVATARS[nm] : null;
+    if (src){
+      try{
+        const img = document.createElement("img");
+        img.alt = nm;
+        img.onload = function(){
+          try{
+            pic.textContent = "";
+            pic.appendChild(img);
+          }catch(e){}
+        };
+        img.onerror = function(){
+          // keep initials
+        };
+        img.src = src;
+      }catch(e){}
+    }
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "avatarName";
+    nameEl.textContent = nm;
+
+    card.appendChild(pic);
+    card.appendChild(nameEl);
+
+    card.addEventListener("click", () => {
+      const kids = avatarGridEl.querySelectorAll(".avatarCard");
+      for (let k=0; k<kids.length; k++){
+        kids[k].classList.remove("sel");
+      }
+      card.classList.add("sel");
+
+      humanProfile.avatarKey = nm;
+      humanProfile.name = nm;
+      if (playerNameInp){
+        playerNameInp.value = nm;
+        try{ playerNameInp.focus(); playerNameInp.select(); }catch(e){}
+      }
+    });
+
+    avatarGridEl.appendChild(card);
+  }
+}
+
+function openProfileModal(){
+    if (!profileModal) return;
+
+    // Default: keep last chosen profile, but ensure name field populated
+    try{
+      if (playerNameInp){
+        const cur = (humanProfile && humanProfile.name) ? String(humanProfile.name) : "";
+        playerNameInp.value = cur || "";
+        setTimeout(() => { try{ playerNameInp.focus(); playerNameInp.select(); }catch(e){} }, 0);
+      }
+    }catch(e){}
+
+    // Ensure chips reflect current selection
+    try{
+      const kids = avatarGridEl ? avatarGridEl.querySelectorAll(".avatarCard") : [];
+      for (let k=0; k<kids.length; k++){
+        const key = kids[k].getAttribute("data-avatarkey");
+        if (humanProfile && humanProfile.avatarKey && key === humanProfile.avatarKey){
+          kids[k].classList.add("sel");
+        }else{
+          kids[k].classList.remove("sel");
+        }
+      }
+    }catch(e){}
+
+    profileModal.style.display = "flex";
+  }
+
+  function closeProfileModal(){
+    if (!profileModal) return;
+    profileModal.style.display = "none";
+  }
+
+  function startFromProfile(){
+    // Read name + selection, then start a new match
+    try{
+      let nm = "";
+      if (playerNameInp) nm = String(playerNameInp.value || "").trim();
+      if (!nm && humanProfile && humanProfile.avatarKey) nm = String(humanProfile.avatarKey);
+      if (!nm) nm = "Player";
+      humanProfile.name = nm;
+
+      // Keep avatarKey aligned to a known name when possible
+      try{
+        if ((!humanProfile.avatarKey || !String(humanProfile.avatarKey).length) && PROFILE_PLAYERS.indexOf(nm) >= 0){
+          humanProfile.avatarKey = nm;
+        }
+      }catch(e){}
+    }catch(e){
+      humanProfile.name = "Player";
+    }
+
+    closeProfileModal();
+startNewGame();
+  }
+
+  // Build avatar chips once
+  _buildAvatarGrid();
+
+  if (profileCancel){
+    profileCancel.addEventListener("click", () => {
+      closeProfileModal();
+    });
+  }
+  if (profileStart){
+    profileStart.addEventListener("click", () => {
+      startFromProfile();
+    });
+  }
+  if (playerNameInp){
+    playerNameInp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter"){
+        e.preventDefault();
+        startFromProfile();
+      }
+      if (e.key === "Escape"){
+        e.preventDefault();
+        closeProfileModal();
+      }
+    });
+  }
+
 
   let state = null;
+try{ if (coinsBtn) coinsBtn.disabled = true; }catch(e){}
+  let humanProfile = { name: "Player", avatarKey: null };
+  try{ window.humanProfile = humanProfile; }catch(e){}
   let difficulty = "standard";
   let aiAnimating = false;
   let lastPlayMsg = "";
@@ -713,8 +972,41 @@ return {
   window.addEventListener("resize", resize);
 
   newBtn.addEventListener("click", () => {
-    startNewGame();
+    openProfileModal();
   });
+
+
+  function renderCoinsList(){
+    if (!coinsList) return;
+    if (!state || !state.players) { coinsList.innerHTML = ""; return; }
+    const coins = state.coins || [];
+    let html = "";
+    for (let i=0;i<state.players.length;i++){
+      const nm = state.players[i].name || ("P" + (i+1));
+      const amt = (typeof coins[i] === "number") ? coins[i] : 0;
+      html += "<div style='display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid rgba(148,163,184,.25); border-radius:14px; background:rgba(248,250,252,.06);'>"
+           +  "<div style='font-weight:800; color:#e2e8f0;'>" + escapeHtml(nm) + "</div>"
+           +  "<div style='font-weight:900; color:#fff;'>" + amt + "c</div>"
+           +  "</div>";
+    }
+    coinsList.innerHTML = html;
+  }
+
+  function openCoinsModal(){
+    if (!coinsModal) return;
+    renderCoinsList();
+    coinsModal.style.display = "flex";
+  }
+  function closeCoinsModal(){
+    if (!coinsModal) return;
+    coinsModal.style.display = "none";
+  }
+
+  function escapeHtml(s){
+    try{
+      return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+    }catch(e){ return ""; }
+  }
 
   function enableNextRoundButtons(on){
     try{
@@ -742,22 +1034,7 @@ return {
   if (pickBBtn) pickBBtn.addEventListener("click", () => pickHand(1));
   if (optAEl) optAEl.addEventListener("click", () => pickHand(0));
   if (optBEl) optBEl.addEventListener("click", () => pickHand(1));
-
-  autoBtn.addEventListener("click", () => {
-    if (!state) return;
-    if (aiAnimating) return;
-    if (currentAnim) return;
-    if (currentAnim) return;
-    if (state.turnPlayerId !== 0) return;
-    const legal = legalMoveIndices(state, state.players[0]);
-    if (legal.length===1){
-      applyMove(state, 0, legal[0]);
-      tickAI();
-      draw();
-    }
-  });
-
-  diffSel.addEventListener("change", () => {
+diffSel.addEventListener("change", () => {
     difficulty = diffSel.value;
     draw();
   });
@@ -799,7 +1076,8 @@ return {
     aiAnimating = false;
     currentAnim = null;
 
-    state = createInitialState(playerCount, coins, bank, chooserSeat);
+    state = createInitialState(playerCount, coins, bank, chooserSeat, humanProfile);
+    try{ if (coinsBtn) coinsBtn.disabled = false; }catch(e){}
     difficulty = diffSel.value;
     lastPlayMsg = "";
     lastPlayAt = 0;
@@ -813,7 +1091,7 @@ return {
   function startNewGame(){
     // New MATCH: reset coins + pots, chooser starts at You
     const pc = parseInt(playersSel.value, 10);
-    const coins = Array.from({length: pc}, () => 50);
+    const coins = Array.from({length: pc}, () => 500);
     const bank = { out: 0, queen: 0, run: 0 };
     startDealFromMatch(pc, coins, bank, 0);
   }
@@ -1148,8 +1426,11 @@ ctx.fillStyle = "#0b1220";
     // centre card and last card
     drawCentreAndLast(w, h);
 
-    // AI players around top
+    // AI players around the table
     drawAIPlayers(w, h);
+
+    // human seat tile
+    drawHumanSeat(w, h);
 
     // human hand
     drawHumanHand(w, h);
@@ -1240,25 +1521,26 @@ ctx.fillStyle = "#0b1220";
   }
 
   function drawCentreAndLast(w, h){
+    const s = uiScale(w,h);
     const cx = w/2;
-    const cy = h/2 - 40;
+    const cy = h/2 - 40*s;
 
     // centre card
     const centreLabel = state.centreRevealed ? cardLabel(state.centreCard) : "Face-down";
-    drawCard(cx-52, cy-60, 96, 128, state.centreRevealed ? centreLabel : "Centre", !state.centreRevealed, false);
+    drawCard(cx-(52*s), cy-(60*s), 96*s, 128*s, state.centreRevealed ? centreLabel : "Centre", !state.centreRevealed, false);
 
     ctx.fillStyle="#94a3b8";
     ctx.font="12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
     ctx.textAlign="center";
-    ctx.fillText(state.centreRevealed ? "Centre (revealed)" : "Centre (hidden)", cx-4, cy+82);
+    ctx.fillText(state.centreRevealed ? "Centre (revealed)" : "Centre (hidden)", cx-4*s, cy+(82*s));
 
     // last played
     let last = null;
     if (state.history.length) last = state.history[state.history.length-1].card;
-    drawCard(cx+92, cy-60, 96, 128, last ? cardLabel(last) : "—", false, false);
+    drawCard(cx+(92*s), cy-(60*s), 96*s, 128*s, last ? cardLabel(last) : "—", false, false);
     ctx.fillStyle="#94a3b8";
     ctx.font="12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-    ctx.fillText("Last Played", cx+140, cy+82);
+    ctx.fillText("Last Played", cx+(140*s), cy+(82*s));
   }
 
   
@@ -1347,6 +1629,7 @@ ctx.fillStyle = "#0b1220";
 
   function drawAIPlayers(w, h){
     ctx.save();
+    const s = uiScale(w,h);
     const n = state.players.length;
 
     for (let i=1;i<n;i++){
@@ -1357,13 +1640,13 @@ ctx.fillStyle = "#0b1220";
       const isTurn = state.turnPlayerId===i;
 
       // Larger seat tile so avatars are clearly visible
-      const box = 118;
+      const box = Math.round(clamp(118*s, 92, 128));
       const bx = x - box/2;
-      const by = y - 66; // slightly above centre
+      const by = y - Math.round(66*s); // slightly above centre
 
       // Border / turn highlight
       ctx.fillStyle = isTurn ? "#22c55e" : "#334155";
-      roundRect(ctx, bx-4, by-4, box+8, box+8, 18, true, false);
+      roundRect(ctx, bx-4, by-4, box+8, box+8, 16, true, false);
 
       // Avatar background (image if available, else initials)
       const nm = pl.name;
@@ -1374,7 +1657,7 @@ ctx.fillStyle = "#0b1220";
           const img = AVATAR_IMG[nm];
           if (img && img.complete && img.naturalWidth > 0){
             ctx.save();
-          roundRect(ctx, bx, by, box, box, 16, true, false);
+          roundRect(ctx, bx, by, box, box, 12, true, false);
           ctx.clip();
           ctx.drawImage(img, bx, by, box, box);
           ctx.restore();
@@ -1382,16 +1665,16 @@ ctx.fillStyle = "#0b1220";
           } else {
             // avatar still loading — draw placeholder tile (no flicker)
             ctx.fillStyle = "#0b1220";
-            roundRect(ctx, bx, by, box, box, 16, true, false);
+            roundRect(ctx, bx, by, box, box, 12, true, false);
           }
         } catch(e){
           // fallback to dark tile if image fails
           ctx.fillStyle = "#0b1220";
-          roundRect(ctx, bx, by, box, box, 16, true, false);
+          roundRect(ctx, bx, by, box, box, 12, true, false);
         }
       } else {
         ctx.fillStyle = "#0b1220";
-        roundRect(ctx, bx, by, box, box, 16, true, false);
+        roundRect(ctx, bx, by, box, box, 12, true, false);
 
         const initials = (nm||"AI").split(/\s+/).slice(0,2).map(s => (s||"").charAt(0).toUpperCase()).join("");
         ctx.fillStyle = "#e2e8f0";
@@ -1412,6 +1695,38 @@ ctx.fillStyle = "#0b1220";
       ctx.textAlign="center";
       ctx.textBaseline="middle";
       ctx.fillText(nm, x, by + box - 13);
+
+
+      // Visual badges (Queen / Run) shown beside the seat
+      try{
+        const b = (state && state.badges) ? state.badges[pl.id] : null;
+        if (b && (b.queen || b.run)){
+          const bx2 = bx + box + 10;
+          let yy = by + 10;
+          const drawBadge = (text) => {
+            ctx.globalAlpha = 0.9;
+            ctx.fillStyle = "#0b1220";
+            roundRect(ctx, bx2, yy, 98, 22, 10, true, false);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = "#e2e8f0";
+            ctx.font = "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(text, bx2 + 49, yy + 11);
+            yy += 26;
+          };
+          if (b.queen){
+            const qs = (b.queenSuit ? suitGlyph(b.queenSuit) : "");
+            const qsList = (b.queenSuits && b.queenSuits.length) ? b.queenSuits.map(suitGlyph).join(" ") : "";
+            drawBadge("QUEEN " + qsList);
+          }
+          if (b.run){
+            const rs = (b.runSuit ? suitGlyph(b.runSuit) : "");
+            const rq = (b.runSeq ? (b.runSeq + " ") : "");
+            drawBadge("RUN " + rq + rs);
+          }
+        }
+      } catch(e){}
 
       // If this seat was the chooser, show which option hand they took
       if (state && state.chooserSeat === pl.id && state.chosenHand){
@@ -1455,6 +1770,178 @@ ctx.fillStyle = "#0b1220";
   }
 
 
+  
+  function drawHumanSeat(w, h){
+    if (!state || !state.players || !state.players[0]) return;
+    const s = uiScale(w,h);
+    const pl = state.players[0];
+    const pos = getPlayerPos(0, w, h);
+    const x = pos.x;
+    const y = pos.y;
+
+    const isTurn = (state.turnPlayerId===0);
+    const box = Math.round(clamp(118*s, 92, 128));
+    const bx = x - box/2;
+    // lift the tile slightly so it remains fully visible above the hand fan
+    const by = (y - (86*s)) - box/2;
+
+    ctx.fillStyle = isTurn ? "#22c55e" : "#334155";
+    roundRect(ctx, bx-4, by-4, box+8, box+8, 16, true, false);
+
+    // Avatar image or initials
+    const nm = pl.name;
+    const key = pl.avatarKey || nm;
+    const imgSrc = (AVATARS && AVATARS[key]) ? AVATARS[key] : ((AVATARS && AVATARS[nm]) ? AVATARS[nm] : null);
+
+    if (imgSrc){
+      try{
+        const img = AVATAR_IMG[key] || AVATAR_IMG[nm];
+        if (img && img.complete && img.naturalWidth > 0){
+          ctx.save();
+          roundRect(ctx, bx, by, box, box, 12, true, false);
+          ctx.clip();
+          ctx.drawImage(img, bx, by, box, box);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = "#0b1220";
+          roundRect(ctx, bx, by, box, box, 12, true, false);
+        }
+      } catch(e){
+        ctx.fillStyle = "#0b1220";
+        roundRect(ctx, bx, by, box, box, 12, true, false);
+      }
+    } else {
+      ctx.fillStyle = "#0b1220";
+      roundRect(ctx, bx, by, box, box, 12, true, false);
+
+      const initialsTxt = (nm||"You").split(/\s+/).slice(0,2).map(function(s2){ return (s2||"").charAt(0).toUpperCase(); }).join("");
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "900 " + Math.round(26*s) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign="center";
+      ctx.textBaseline="middle";
+      ctx.fillText(initialsTxt || "U", x, by + box/2);
+    }
+
+    // Name strip
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = "#0f172a";
+    roundRect(ctx, bx, by + box - Math.round(26*s), box, Math.round(26*s), 12, true, false);
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "700 " + Math.round(13*s) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.fillText(nm, x, by + box - Math.round(13*s));
+
+    // Card count
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = Math.round(12*s) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.textAlign="center";
+    ctx.textBaseline="alphabetic";
+    ctx.fillText(pl.hand.length + " cards", x, by + box + Math.round(18*s));
+
+    // Badges (Queen / Run) beside tile
+    try{
+      const b = (state && state.badges) ? state.badges[0] : null;
+      if (b && (b.queen || b.run)){
+        const bx2 = bx - (64*s);
+        let yy = by + (10*s);
+        const drawBadge = function(text){
+          ctx.globalAlpha = 0.9;
+          ctx.fillStyle = "#0b1220";
+          roundRect(ctx, bx2, yy, 54*s, 22*s, 10, true, false);
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = "#e2e8f0";
+          ctx.font = "800 " + Math.round(12*s) + "px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(text, bx2 + (27*s), yy + (11*s));
+          yy += (28*s);
+        };
+        if (b.queen){
+            const qs = (b.queenSuit ? suitGlyph(b.queenSuit) : "");
+            const qsList = (b.queenSuits && b.queenSuits.length) ? b.queenSuits.map(suitGlyph).join(" ") : "";
+            drawBadge("QUEEN " + qsList);
+          }
+        if (b.run){
+            const rs = (b.runSuit ? suitGlyph(b.runSuit) : "");
+            const rq = (b.runSeq ? (b.runSeq + " ") : "");
+            drawBadge("RUN " + rq + rs);
+          }
+      }
+    }catch(e){}
+  }
+
+
+function drawUserPanel(w, h){
+    if (!state || !state.players || !state.players[0]) return;
+    const you = state.players[0];
+    const panelW = 260;
+    const panelH = 56;
+    const px = w/2 - panelW/2;
+    const py = h - panelH - 10;
+
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = "#0f172a";
+    roundRect(ctx, px, py, panelW, panelH, 14, true, false);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#334155";
+    ctx.lineWidth = 1;
+    roundRect(ctx, px, py, panelW, panelH, 14, false, true);
+
+    const ax = px + 28;
+    const ay = py + panelH/2;
+    const r = 18;
+
+    let drew = false;
+    try{
+      const key = you.avatarKey;
+      if (key && AVATAR_IMG && AVATAR_IMG[key] && AVATAR_IMG[key].complete && AVATAR_IMG[key].naturalWidth > 0){
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(ax, ay, r, 0, Math.PI*2);
+        ctx.clip();
+        ctx.drawImage(AVATAR_IMG[key], ax-r, ay-r, r*2, r*2);
+        ctx.restore();
+        drew = true;
+      }
+    } catch(e){}
+
+    if (!drew){
+      ctx.fillStyle = "#0b1220";
+      ctx.beginPath();
+      ctx.arc(ax, ay, r, 0, Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle = "#334155";
+      ctx.stroke();
+
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "900 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(initials(you.name) || "U", ax, ay);
+    }
+
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "800 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(you.name || "Player", px + 56, py + 24);
+
+    try{
+      const b = (state.badges && state.badges[0]) ? state.badges[0] : null;
+      let s = "";
+      if (b && b.queen) s += "👑 ";
+      if (b && b.run) s += "🔗 ";
+      if (s){
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+        ctx.fillText(s.trim(), px + 56, py + 44);
+      }
+    } catch(e){}
+  }
+
   function drawHumanHand(w, h){
     const human = state.players[0];
     if (state.phase !== "play"){
@@ -1476,7 +1963,8 @@ ctx.fillStyle = "#0b1220";
     const maxFan = Math.min(22, Math.max(8, count));
     const fan = Math.min(count, maxFan);
 
-    const radius = 180;
+    const s = uiScale(w,h);
+    const radius = 180*s;
     const startDeg = 210;
     const endDeg = 330;
     const step = fan > 1 ? (endDeg - startDeg) / (fan - 1) : 0;
@@ -1493,8 +1981,8 @@ ctx.fillStyle = "#0b1220";
         const x = startX + i*spacing;
         const y = baseY;
         const isLegal = isTurn && (legal.indexOf(i) >= 0);
-        drawCard(x, y, 78, 112, cardLabel(c), false, isLegal);
-        humanCardBoxes.push({x:x-39, y:y-56, w:78, h:112, index:i, legal:isLegal});
+        drawCard(x, y, 78*s, 112*s, cardLabel(c), false, isLegal);
+        humanCardBoxes.push({x:x-(39*s), y:y-(56*s), w:(78*s), h:(112*s), index:i, legal:isLegal});
       }
     } else {
       for (let i=0;i<count;i++){
@@ -1505,8 +1993,8 @@ ctx.fillStyle = "#0b1220";
 
         const c = human.hand[i];
         const isLegal = isTurn && (legal.indexOf(i) >= 0);
-        drawCard(x, y, 78, 112, cardLabel(c), false, isLegal);
-        humanCardBoxes.push({x:x-39, y:y-56, w:78, h:112, index:i, legal:isLegal});
+        drawCard(x, y, 78*s, 112*s, cardLabel(c), false, isLegal);
+        humanCardBoxes.push({x:x-(39*s), y:y-(56*s), w:(78*s), h:(112*s), index:i, legal:isLegal});
       }
     }
 
@@ -1515,7 +2003,7 @@ ctx.fillStyle = "#0b1220";
     ctx.textAlign="center";
     const msg = (state.phase !== "play") ? "Choose your starting hand (two distinct hands, no overlap) above."
                : (isTurn ? "Your turn — click a highlighted legal card." : "Waiting for AI...");
-    ctx.fillText(msg, w/2, h-32);
+    ctx.fillText(msg, w/2, h-(28*uiScale(w,h)));
   }
 
   function drawEndOverlay(w, h){
@@ -1696,14 +2184,19 @@ ctx.fillStyle = "#0b1220";
 
   function lerp(a,b,t){ return a + (b-a)*t; }
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+  function uiScale(w,h){
+    // 1.0 around ~920px min dimension; scales down on smaller screens
+    return clamp(Math.min(w,h)/920, 0.72, 1.0);
+  }
 
   function getPlayerPos(playerId, w, h){
     // 6–8 seats around a circle. Player 0 (You) is at bottom.
     const n = state ? state.players.length : 6;
     const cx = w/2;
-    const cy = h/2 - 10;
-    // Seat radius: larger => players spaced further out from the centre (prevents end-game overlap)
-    const r = Math.min(w,h) * 0.40;
+    const s = uiScale(w,h);
+    const cy = h/2 - 22*s;
+    // Seat radius: responsive. Larger screens space out more, smaller screens keep everything visible.
+    const r = Math.min(w,h) * (0.34 + 0.06*s);
 
     // angle: player 0 at 90deg (bottom), then clockwise
     const baseDeg = 90;
@@ -1731,7 +2224,7 @@ ctx.fillStyle = "#0b1220";
   }
 
   // Boot
-  startNewGame();
+  // Do not auto-start; wait for the user to press New Game.
   resize();
   if (!rafStarted){
     rafStarted = true;
@@ -1739,6 +2232,21 @@ ctx.fillStyle = "#0b1220";
     requestAnimationFrame(frame);
   }
 })();
+
+// ------------------------------
+// Bottom HUD helpers (fixed pill)
+// ------------------------------
+function _initialsFromName(n){
+  try{
+    n = (n||"").trim();
+    if (!n) return "?";
+    var parts = n.split(/\s+/);
+    var a = parts[0] ? parts[0][0] : "?";
+    var b = parts.length>1 ? parts[parts.length-1][0] : (parts[0].length>1 ? parts[0][1] : "");
+    return (a + b).toUpperCase();
+  }catch(e){ return "?"; }
+}
+
 </script>
 </body>
 </html>
