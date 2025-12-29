@@ -120,6 +120,93 @@
 
 <script>
 (() => {
+
+  // --------------------------
+  // Sounds (WebAudio) — no external files needed
+  // --------------------------
+  const SFX = {
+    ctx: null,
+    enabled: true,
+    unlocked: false,
+    gain: null
+  };
+
+  function sfxInit(){
+    try{
+      if (SFX.ctx) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      SFX.ctx = new AudioCtx();
+      SFX.gain = SFX.ctx.createGain();
+      SFX.gain.gain.value = 0.35; // master volume
+      SFX.gain.connect(SFX.ctx.destination);
+    }catch(e){}
+  }
+
+  function sfxUnlock(){
+    try{
+      sfxInit();
+      if (!SFX.ctx) return;
+      if (SFX.ctx.state === "suspended") SFX.ctx.resume();
+
+      // Inaudible tick to fully unlock on iOS/Safari
+      const o = SFX.ctx.createOscillator();
+      const g = SFX.ctx.createGain();
+      g.gain.value = 0.00001;
+      o.frequency.value = 440;
+      o.connect(g);
+      g.connect(SFX.gain);
+      o.start();
+      o.stop(SFX.ctx.currentTime + 0.01);
+
+      SFX.unlocked = true;
+    }catch(e){}
+  }
+
+  function sfxDealTick(){
+    if (!SFX.enabled) return;
+    if (!SFX.unlocked) return;
+    if (!SFX.ctx || !SFX.gain) return;
+
+    try{
+      const t = SFX.ctx.currentTime;
+      const dur = 0.04;
+
+      const bufferSize = Math.floor(SFX.ctx.sampleRate * dur);
+      const buffer = SFX.ctx.createBuffer(1, bufferSize, SFX.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i=0;i<bufferSize;i++){
+        data[i] = (Math.random()*2 - 1) * (1 - (i / bufferSize));
+      }
+
+      const noise = SFX.ctx.createBufferSource();
+      noise.buffer = buffer;
+
+      const hp = SFX.ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.setValueAtTime(1200, t);
+
+      const bp = SFX.ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.setValueAtTime(2200, t);
+      bp.Q.setValueAtTime(2.5, t);
+
+      const eg = SFX.ctx.createGain();
+      eg.gain.setValueAtTime(0.0, t);
+      eg.gain.linearRampToValueAtTime(0.35, t + 0.005);
+      eg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+      noise.connect(hp);
+      hp.connect(bp);
+      bp.connect(eg);
+      eg.connect(SFX.gain);
+
+      noise.start(t);
+      noise.stop(t + dur);
+    }catch(e){}
+  }
+
+
   // --------------------------
   // Utilities / Types
   // --------------------------
@@ -241,7 +328,52 @@ function compareCard(a,b){
     return runRiskScore(a) <= runRiskScore(b) ? sortHand(a) : sortHand(b);
   }
 
-  // --------------------------
+  
+function countQueens(hand){
+  let q = 0;
+  for (let i=0;i<hand.length;i++){
+    if (hand[i] && hand[i].rank === 12) q++;
+  }
+  return q;
+}
+
+function bestRunLen(hand){
+  const bySuit = {S:[],H:[],D:[],C:[]};
+  for (let i=0;i<hand.length;i++){
+    const c = hand[i];
+    if (!c) continue;
+    bySuit[c.suit].push(c.rank);
+  }
+  let best = 1;
+  for (const s of ["S","H","D","C"]){
+    const ranks = bySuit[s].slice().sort(function(a,b){ return a-b; });
+    let streak = 1;
+    for (let i=1;i<ranks.length;i++){
+      if (ranks[i] === ranks[i-1] + 1) streak++;
+      else streak = 1;
+      if (streak > best) best = streak;
+    }
+  }
+  return best;
+}
+
+function outScore(hand){
+  let sum = 0;
+  for (let i=0;i<hand.length;i++){
+    sum += hand[i].rank;
+  }
+  const avg = hand.length ? (sum / hand.length) : 99;
+  return (20 - avg);
+}
+
+function chooserScore(hand){
+  const q = countQueens(hand);     // priority 1: Queens
+  const runL = bestRunLen(hand);   // priority 2: Run length
+  const out = outScore(hand);      // priority 3: Out potential
+  return (q * 1000000) + (runL * 1000) + out;
+}
+
+// --------------------------
   // Game State
   // --------------------------
     function createInitialState(playerCount, coins, bank, chooserSeat, humanProfile){
@@ -531,6 +663,9 @@ return {
   }
 
   function applyMove(state, playerId, handIndex){
+    // Sound: card played
+    try{ sfxDealTick(); }catch(e){}
+
     const p = state.players[playerId];
     const card = p.hand[handIndex];
     p.hand.splice(handIndex,1);
@@ -909,6 +1044,7 @@ function openProfileModal(){
     }
 
     closeProfileModal();
+    sfxUnlock();
 startNewGame();
   }
 
@@ -972,6 +1108,7 @@ try{ if (coinsBtn) coinsBtn.disabled = true; }catch(e){}
   window.addEventListener("resize", resize);
 
   newBtn.addEventListener("click", () => {
+    sfxUnlock();
     openProfileModal();
   });
 
@@ -1289,6 +1426,7 @@ diffSel.addEventListener("change", () => {
       da.active = { pid: item.pid, pile: item.pile, card: item.card, from: from, to: to, start: now, dur: 210 };
       da.lastAt = now;
       da.idx += 1;
+      sfxDealTick();
     }
 
     if (da.active){
@@ -1325,9 +1463,15 @@ diffSel.addEventListener("change", () => {
         lastPlayAt = performance.now();
       } else {
         // AI chooser auto-picks the less runny hand (fewer long runs)
+        
+        // AI chooser picks by priority: Queens > Run > Out
         const a = state.handPiles.A || [];
         const b = state.handPiles.B || [];
-        const pickA = (runRiskScore(a) <= runRiskScore(b));
+
+        const scoreA = chooserScore(a);
+        const scoreB = chooserScore(b);
+
+        const pickA = (scoreA >= scoreB); // tie -> A
         const chosen = pickA ? a : b;
 
         state.players[state.chooserSeat].hand = sortHand(chosen.slice());
