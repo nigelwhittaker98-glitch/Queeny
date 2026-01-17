@@ -216,7 +216,216 @@
   const suitGlyph = (s) => s==="S" ? "♠" : s==="H" ? "♥" : s==="D" ? "♦" : "♣";
   const rankLabel = (r) => r===1 ? "A" : r===11 ? "J" : r===12 ? "Q" : r===13 ? "K" : String(r);
   const cardLabel = (c) => rankLabel(c.rank) + suitGlyph(c.suit);
-  function initials(name){
+  
+
+  // --------------------------
+  // Voice (TTS)
+  // - First card of a new suit/run: "Eight of Hearts"
+  // - Continuation card in same run: "Nine", "Ten", "Jack", ...
+  // - If run breaks: silence (until next new suit starts)
+  // --------------------------
+  const VOICE = {
+    enabled: true,
+    unlocked: false,
+    preferName: "",
+    rate: 0.95,
+    pitch: 1.0,
+    volume: 0.9
+  };
+
+  // --------------------------
+  // Voice clips (Option 3) — uses /sounds folder (GitHub-host friendly)
+  // Falls back to TTS if a clip is missing.
+  //
+  // Expected file naming:
+  //  - First card of a suit/run (full):  sounds/<rank>_of_<suit>.mp3
+  //      rank: ace,2,3,...,10,jack,queen,king
+  //      suit: hearts,clubs,diamonds,spades
+  //      examples: sounds/eight_of_hearts.mp3 , sounds/ace_of_spades.mp3
+  //
+  //  - Continuation cards (rank-only):   sounds/<rank>.mp3
+  //      examples: sounds/9.mp3 , sounds/ten.mp3 , sounds/jack.mp3
+  //
+  // You can use .wav instead of .mp3 — just change VOX.ext below.
+  // --------------------------
+  const VOX = {
+    enabled: true,
+    base: "sounds/",
+    ext: ".mp3",
+    cur: null,
+    cache: {} // src -> true (known good) / false (known missing)
+  };
+
+  function voxUnlock(){
+    // Called on user gesture to satisfy autoplay policies
+    try{
+      // prime an Audio element (no sound)
+      const a = new Audio();
+      a.muted = true;
+      a.src = VOX.base + "_silence" + VOX.ext; // optional; if missing it's fine
+      const p = a.play();
+      if (p && p.catch) p.catch(function(){});
+    }catch(e){}
+  }
+
+  function voxStop(){
+    try{
+      if (VOX.cur){
+        VOX.cur.pause();
+        VOX.cur.currentTime = 0;
+      }
+    }catch(e){}
+  }
+
+  function voxPlay(src, fallbackText){
+    if (!VOX.enabled) return false;
+    try{
+      // If we already know it's missing, go straight to fallback
+      if (VOX.cache.hasOwnProperty(src) && VOX.cache[src] === false){
+        if (fallbackText) speak(fallbackText);
+        return false;
+      }
+
+      voxStop();
+
+      const a = new Audio(src);
+      VOX.cur = a;
+      a.preload = "auto";
+      a.onended = function(){ try{ /* no-op */ }catch(e){} };
+      a.onerror = function(){
+        try{ VOX.cache[src] = false; }catch(e){}
+        if (fallbackText) speak(fallbackText);
+      };
+      a.oncanplaythrough = function(){
+        try{ VOX.cache[src] = true; }catch(e){}
+      };
+
+      const pr = a.play();
+      if (pr && pr.catch){
+        pr.catch(function(){
+          // If play is blocked, use TTS fallback
+          if (fallbackText) speak(fallbackText);
+        });
+      }
+      return true;
+    }catch(e){
+      if (fallbackText) speak(fallbackText);
+      return false;
+    }
+  }
+
+  function suitWordLower(s){
+    return (s==="S") ? "spades" : (s==="H") ? "hearts" : (s==="D") ? "diamonds" : "clubs";
+  }
+
+  function rankWordLower(r){
+    if (r===1) return "ace";
+    if (r===11) return "jack";
+    if (r===12) return "queen";
+    if (r===13) return "king";
+    if (r===10) return "ten"; // allows ten.mp3
+    return String(r);
+  }
+
+  function voxSpeakFirst(card){
+    try{
+      const r = rankWordLower(card.rank);
+      const s = suitWordLower(card.suit);
+      const src = VOX.base + r + "_of_" + s + VOX.ext;
+      const fallback = rankWord(card.rank) + " of " + suitWord(card.suit);
+      voxPlay(src, fallback);
+    }catch(e){}
+  }
+
+  function voxSpeakRank(card){
+    try{
+      const r = rankWordLower(card.rank);
+      const src = VOX.base + r + VOX.ext;
+      const fallback = rankWord(card.rank);
+      voxPlay(src, fallback);
+    }catch(e){}
+  }
+
+
+
+  
+  function voxSpeakAndOut(){
+    try{
+      const src = VOX.base + "and_out" + VOX.ext;
+      voxPlay(src, "and out");
+    }catch(e){}
+  }
+
+function ttsUnlock(){
+    try{
+      if (!window.speechSynthesis) return;
+      // Prime speech on some browsers (must be in a user gesture)
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+      VOICE.unlocked = true;
+    }catch(e){}
+  }
+
+  function suitWord(s){
+    return (s==="S") ? "Spades" : (s==="H") ? "Hearts" : (s==="D") ? "Diamonds" : "Clubs";
+  }
+
+  function rankWord(r){
+    if (r===1) return "Ace";
+    if (r===11) return "Jack";
+    if (r===12) return "Queen";
+    if (r===13) return "King";
+    return String(r);
+  }
+
+  function speak(text){
+    try{
+      if (!VOICE.enabled) return;
+      if (!VOICE.unlocked) return;
+      if (!window.speechSynthesis) return;
+
+      // Never lag behind gameplay
+      try{ window.speechSynthesis.cancel(); }catch(e){}
+
+      const u = new SpeechSynthesisUtterance(String(text || ""));
+      u.rate = VOICE.rate;
+      u.pitch = VOICE.pitch;
+      u.volume = VOICE.volume;
+
+      // Optional preferred voice selection
+      try{
+        const vs = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+        if (vs && vs.length && VOICE.preferName){
+          const want = VOICE.preferName.toLowerCase();
+          for (let i=0;i<vs.length;i++){
+            const nm = (vs[i] && vs[i].name) ? String(vs[i].name).toLowerCase() : "";
+            if (nm.indexOf(want) >= 0){ u.voice = vs[i]; break; }
+          }
+        }
+      }catch(e){}
+
+      window.speechSynthesis.speak(u);
+    }catch(e){}
+  }
+
+  function speakFirstCardOfSuit(card){
+    try{
+      if (!card) return;
+      // Prefer recorded clip; falls back to TTS automatically
+      voxSpeakFirst(card);
+    }catch(e){}
+  }
+
+  function speakRankOnly(card){
+    try{
+      if (!card) return;
+      // Prefer recorded clip; falls back to TTS automatically
+      voxSpeakRank(card);
+    }catch(e){}
+  }
+
+function initials(name){
     try{
       const parts = String(name||"").trim().split(/\s+/).filter(Boolean);
       if (!parts.length) return "";
@@ -666,9 +875,23 @@ return {
     // Sound: card played
     try{ sfxDealTick(); }catch(e){}
 
+
     const p = state.players[playerId];
     const card = p.hand[handIndex];
-    p.hand.splice(handIndex,1);
+    
+    // Voice: first card says full suit; continuation says rank-only
+    try{
+      const _startNewSuit = (state.currentSuit === null || state.lastCard === null);
+      if (_startNewSuit){
+        speakFirstCardOfSuit(card);
+      } else {
+        const _prev = state.lastCard;
+        if (_prev && _prev.suit === card.suit && card.rank === _prev.rank + 1){
+          speakRankOnly(card);
+        }
+      }
+    }catch(e){}
+p.hand.splice(handIndex,1);
 
     // once a card is played, the "must play lowest" requirement clears
     if (state.turnPlayerId === playerId){
@@ -722,19 +945,37 @@ return {
 
     // Out pot ends the game immediately (your rule)
     if (p.hand.length===0 && state.pots.outWinnerId===null){
+
+      // Speak "and out" after the final card audio
+      try{
+        setTimeout(function(){
+          voxSpeakAndOut();
+        }, 650);
+      }catch(e){}
+
+
       state.pots.outWinnerId = playerId;
       p.outAtPlay = state.playIndex;
 
-      // Reveal centre card immediately at end
-      state.centreRevealed = true;
-      state.pots.queenSuit = state.centreCard.suit;
+      // Delay the end-of-round reveal so the audio lands ("... and out")
+      state.phase = "outPause";
 
-      const playedOwner = findQueenPlayOwner(state, state.pots.queenSuit);
-      const heldOwner = findCurrentQueenHolder(state, state.pots.queenSuit);
-      state.queenReveal = { playedBy: playedOwner, heldBy: heldOwner };
-      if (playedOwner !== null) state.pots.queenWinnerId = playedOwner;
+      try{
+        setTimeout(function(){
+          try{
+            state.centreRevealed = true;
+            state.pots.queenSuit = state.centreCard.suit;
 
-      settleAndQueueNextRound();
+            const playedOwner = findQueenPlayOwner(state, state.pots.queenSuit);
+            const heldOwner = findCurrentQueenHolder(state, state.pots.queenSuit);
+            state.queenReveal = { playedBy: playedOwner, heldBy: heldOwner };
+            if (playedOwner !== null) state.pots.queenWinnerId = playedOwner;
+
+            settleAndQueueNextRound();
+          }catch(e){}
+        }, 5000);
+      }catch(e){}
+
       return;
     }
 
@@ -1045,7 +1286,8 @@ function openProfileModal(){
 
     closeProfileModal();
     sfxUnlock();
-startNewGame();
+    try{ ttsUnlock(); }catch(e){}
+    try{ voxUnlock(); }catch(e){}startNewGame();
   }
 
   // Build avatar chips once
@@ -1108,12 +1350,11 @@ try{ if (coinsBtn) coinsBtn.disabled = true; }catch(e){}
   window.addEventListener("resize", resize);
 
   newBtn.addEventListener("click", () => {
-    sfxUnlock();
+sfxUnlock();
+        try{ ttsUnlock(); }catch(e){}
     openProfileModal();
   });
-
-
-  function renderCoinsList(){
+function renderCoinsList(){
     if (!coinsList) return;
     if (!state || !state.players) { coinsList.innerHTML = ""; return; }
     const coins = state.coins || [];
